@@ -48,6 +48,10 @@ dependencies:
 
   intl: ^0.20.2
 
+  # Consultas de solo lectura a la API pública de GitHub (Fase 6) -- sin
+  # token ni secreto alguno en el cliente, ver github_service.dart.
+  http: ^1.2.2
+
   # Tipografía propia (Space Grotesk + Inter + JetBrains Mono) para el
   # "diseño moderno y profesional" pedido -- mismo paquete que ya usa
   # Convive, sin añadir nada nuevo al ecosistema.

@@ -1,4 +1,6 @@
 // test/screens/proyecto_detail_screen_test.dart
+import 'dart:convert';
+
 import 'package:appsdoc/models/estado_tarea.dart';
 import 'package:appsdoc/screens/documentacion/documento_form_screen.dart';
 import 'package:appsdoc/screens/funcionalidades/funcionalidad_form_screen.dart';
@@ -8,6 +10,7 @@ import 'package:appsdoc/screens/tareas/tarea_form_screen.dart';
 import 'package:appsdoc/services/auditoria_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
+import 'package:appsdoc/services/github_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
@@ -16,6 +19,8 @@ import 'package:appsdoc/theme/design_tokens.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
   setUp(() {
@@ -37,6 +42,7 @@ void main() {
   });
 
   tearDown(() {
+    GithubService.debugHttpClientOverride = null;
     ProyectoService.debugFirestoreOverride = null;
     ProyectoService.debugUidOverride = null;
     FuncionalidadService.debugFirestoreOverride = null;
@@ -55,35 +61,39 @@ void main() {
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);
 
-  testWidgets('muestra la ficha del proyecto y los estados vacíos de ambas secciones', (tester) async {
+  // La ficha es una sola lista larga de secciones (sin tabs, ver
+  // arquitectura aprobada) que crece con cada fase -- Repositorio y
+  // Progreso ya la hacen más alta que el viewport por defecto del test
+  // (800x600), y volverá a crecer en fases futuras. En vez de ir
+  // persiguiendo con scrollUntilVisible() qué sección queda o no dentro
+  // del viewport en cada fase, se agranda el "surface" del test para que
+  // la pantalla entera quepa de una vez: así los tests comprueban
+  // contenido, no geometría de scroll.
+  Future<void> pumpDetailScreen(WidgetTester tester, String proyectoId) async {
+    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: proyectoId)));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('muestra la ficha del proyecto y los estados vacíos de todas las secciones', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA', descripcion: 'Mantenimiento del hogar');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
     expect(find.text('Mantenimiento del hogar'), findsOneWidget);
+    expect(find.text('Repositorio'), findsOneWidget);
+    expect(find.text('Sin repositorio vinculado.'), findsOneWidget);
     expect(find.text('Funcionalidades'), findsOneWidget);
-    expect(find.text('Documentación'), findsOneWidget);
     expect(find.text('Sin funcionalidades todavía.'), findsOneWidget);
+    expect(find.text('Documentación'), findsOneWidget);
     expect(find.text('Sin documentos todavía.'), findsOneWidget);
-
-    // A partir de aquí las secciones quedan fuera del viewport por defecto
-    // del test (la tarjeta de Progreso las empuja más abajo). La pantalla es
-    // una sola lista larga de secciones (sin tabs), así que hace falta ir
-    // bajando, en orden, para que cada una se construya antes de mirarla.
-    await tester.scrollUntilVisible(find.text('Tareas'), 300);
     expect(find.text('Tareas'), findsOneWidget);
     expect(find.text('Sin tareas todavía.'), findsOneWidget);
-
-    await tester.scrollUntilVisible(find.text('Ideas'), 300);
     expect(find.text('Ideas'), findsOneWidget);
     expect(find.text('Sin ideas todavía.'), findsOneWidget);
-
-    await tester.scrollUntilVisible(find.text('Auditorías'), 300);
     expect(find.text('Auditorías'), findsOneWidget);
     expect(find.text('Sin auditorías todavía.'), findsOneWidget);
-
-    await tester.scrollUntilVisible(find.text('Historial'), 300);
     expect(find.text('Historial'), findsOneWidget);
     // El propio crear() del proyecto ya dejó un evento -- nunca está vacío.
     expect(find.text('Sin actividad todavía.'), findsNothing);
@@ -93,10 +103,9 @@ void main() {
   testWidgets('añadir una funcionalidad desde la sección la hace aparecer en la lista', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).first);
+    await tester.tap(find.byTooltip('Añadir funcionalidad'));
     await tester.pumpAndSettle();
     expect(find.byType(FuncionalidadFormScreen), findsOneWidget);
 
@@ -112,10 +121,9 @@ void main() {
   testWidgets('añadir un documento desde la sección lo hace aparecer en la lista', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(1));
+    await tester.tap(find.byTooltip('Añadir documento'));
     await tester.pumpAndSettle();
     expect(find.byType(DocumentoFormScreen), findsOneWidget);
 
@@ -130,6 +138,8 @@ void main() {
 
   testWidgets('eliminar el proyecto desde "editar" cierra también la pantalla de detalle', (tester) async {
     final id = await ProyectoService.crear(nombre: 'Efímero');
+    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(
       envolver(
@@ -163,16 +173,13 @@ void main() {
   testWidgets('añadir una tarea desde la sección la hace aparecer en la lista', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
-    await tester.scrollUntilVisible(find.byTooltip('Añadir tarea'), 300);
     await tester.tap(find.byTooltip('Añadir tarea'));
     await tester.pumpAndSettle();
     expect(find.byType(TareaFormScreen), findsOneWidget);
 
     await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Escribir reglas de Firestore');
-    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Crear tarea'));
     await tester.tap(find.widgetWithText(FilledButton, 'Crear tarea'));
     await tester.pumpAndSettle();
 
@@ -184,10 +191,8 @@ void main() {
   testWidgets('añadir una idea desde la sección la hace aparecer en la lista', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
-    await tester.scrollUntilVisible(find.byTooltip('Añadir idea'), 300);
     await tester.tap(find.byTooltip('Añadir idea'));
     await tester.pumpAndSettle();
     expect(find.byType(IdeaFormScreen), findsOneWidget);
@@ -205,10 +210,8 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
     await TareaService.crear(proyectoId: id, titulo: 'Tarea rápida');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
-    await tester.scrollUntilVisible(find.text('Pendiente'), 300);
     expect(find.text('Pendiente'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.more_vert));
@@ -224,49 +227,39 @@ void main() {
   testWidgets('añadir una auditoría desde la sección la hace aparecer en la lista', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
-    await tester.scrollUntilVisible(find.byTooltip('Añadir auditoría'), 300);
     await tester.tap(find.byTooltip('Añadir auditoría'));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.widgetWithText(TextFormField, 'Resumen'), 'Primera auditoría');
-    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Crear auditoría'));
     await tester.tap(find.widgetWithText(FilledButton, 'Crear auditoría'));
     await tester.pumpAndSettle();
 
     expect(find.text('Sin auditorías todavía.'), findsNothing);
     // La fila de la lista no muestra el resumen, solo fecha/origen -- lo
     // que sí confirma que se creó es que el historial recoja el evento.
-    // Historial es la última sección, fuera del viewport por defecto.
-    await tester.scrollUntilVisible(find.textContaining('Auditoría creada'), 300);
     expect(find.textContaining('Auditoría creada'), findsOneWidget);
   });
 
   testWidgets('crear una tarea deja un evento en el historial, visible en esa misma pantalla', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
-    await tester.scrollUntilVisible(find.byTooltip('Añadir tarea'), 300);
     await tester.tap(find.byTooltip('Añadir tarea'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Tarea con historial');
-    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Crear tarea'));
     await tester.tap(find.widgetWithText(FilledButton, 'Crear tarea'));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.textContaining('Tarea creada: "Tarea con historial"'), 300);
     expect(find.textContaining('Tarea creada: "Tarea con historial"'), findsOneWidget);
   });
 
   testWidgets('muestra el porcentaje y el desglose de los cuatro criterios de progreso', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
 
     expect(find.text('Preparación para publicar'), findsOneWidget);
     expect(find.text('45%'), findsOneWidget);
@@ -284,8 +277,7 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
     await FuncionalidadService.crear(proyectoId: id, nombre: 'Login');
 
-    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
-    await tester.pumpAndSettle();
+    await pumpDetailScreen(tester, id);
     expect(find.text('45%'), findsOneWidget);
 
     await tester.tap(find.text('Login'));
@@ -296,5 +288,103 @@ void main() {
 
     expect(find.text('85%'), findsOneWidget);
     expect(find.text('45%'), findsNothing);
+  });
+
+  testWidgets('vincular un repositorio muestra su resumen de GitHub (rama, último commit, actualizado)', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    GithubService.debugHttpClientOverride = MockClient((request) async {
+      if (request.url.path == '/repos/owner/repo') {
+        return http.Response(jsonEncode({'default_branch': 'main', 'updated_at': '2026-11-01T10:00:00Z'}), 200);
+      }
+      return http.Response(
+        jsonEncode({
+          'commit': {
+            'message': 'fix: progreso real',
+            'committer': {'date': '2026-11-10T08:30:00Z'},
+          },
+        }),
+        200,
+      );
+    });
+
+    await pumpDetailScreen(tester, id);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Vincular repositorio'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'https://github.com/owner/repo');
+    await tester.tap(find.widgetWithText(FilledButton, 'Vincular'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('owner/repo'), findsOneWidget);
+    expect(find.textContaining('main'), findsWidgets);
+    expect(find.textContaining('fix: progreso real'), findsOneWidget);
+    expect(find.text('Conectado'), findsOneWidget);
+  });
+
+  testWidgets('una URL que no es de GitHub no se vincula y muestra el error en el propio diálogo', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    await pumpDetailScreen(tester, id);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Vincular repositorio'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'https://gitlab.com/owner/repo');
+    await tester.tap(find.widgetWithText(FilledButton, 'Vincular'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Esa URL no parece la de un repositorio de GitHub'), findsOneWidget);
+    expect(find.text('Sin repositorio vinculado.'), findsOneWidget);
+  });
+
+  testWidgets('un repositorio inexistente o privado muestra el mensaje de error, con botón para reintentar', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+    var peticiones = 0;
+    GithubService.debugHttpClientOverride = MockClient((request) async {
+      peticiones++;
+      return http.Response('not found', 404);
+    });
+
+    await pumpDetailScreen(tester, id);
+
+    expect(find.text('El repositorio no existe o es privado.'), findsOneWidget);
+    final peticionesTrasElPrimerIntento = peticiones;
+
+    await tester.tap(find.byTooltip('Reintentar'));
+    await tester.pumpAndSettle();
+
+    expect(peticiones, greaterThan(peticionesTrasElPrimerIntento));
+  });
+
+  testWidgets('desvincular quita el resumen y vuelve al estado sin conectar', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+    GithubService.debugHttpClientOverride = MockClient((request) async {
+      if (request.url.path == '/repos/owner/repo') {
+        return http.Response(jsonEncode({'default_branch': 'main', 'updated_at': '2026-11-01T10:00:00Z'}), 200);
+      }
+      return http.Response(
+        jsonEncode({
+          'commit': {
+            'message': 'x',
+            'committer': {'date': '2026-11-10T08:30:00Z'},
+          },
+        }),
+        200,
+      );
+    });
+
+    await pumpDetailScreen(tester, id);
+    expect(find.text('owner/repo'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Desvincular repositorio'));
+    await tester.pumpAndSettle();
+    expect(find.text('¿Desvincular repositorio?'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Desvincular'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sin repositorio vinculado.'), findsOneWidget);
+    expect(find.text('owner/repo'), findsNothing);
   });
 }

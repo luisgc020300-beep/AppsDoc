@@ -12,6 +12,9 @@ void main() {
       descripcion: 'Conquista territorial de running',
       estado: EstadoProyecto.enDesarrollo,
       progresoPorcentaje: 72,
+      repoUrl: 'https://github.com/owner/riskrunner',
+      repoPropietario: 'owner',
+      repoNombre: 'riskrunner',
       createdAt: ahora,
       updatedAt: ahora,
     );
@@ -23,8 +26,24 @@ void main() {
     expect(reconstruido.descripcion, 'Conquista territorial de running');
     expect(reconstruido.estado, EstadoProyecto.enDesarrollo);
     expect(reconstruido.progresoPorcentaje, 72);
+    expect(reconstruido.repoUrl, 'https://github.com/owner/riskrunner');
+    expect(reconstruido.repoPropietario, 'owner');
+    expect(reconstruido.repoNombre, 'riskrunner');
+    expect(reconstruido.repoConectado, true);
     expect(reconstruido.createdAt, ahora);
     expect(reconstruido.updatedAt, ahora);
+  });
+
+  test('repoUrl/repoPropietario/repoNombre por defecto están vacíos y repoConectado es false', () {
+    final nuevo = Proyecto(id: 'p1', nombre: 'X', createdAt: DateTime.now(), updatedAt: DateTime.now());
+
+    expect(nuevo.repoUrl, isEmpty);
+    expect(nuevo.repoPropietario, isEmpty);
+    expect(nuevo.repoNombre, isEmpty);
+    expect(nuevo.repoConectado, false);
+
+    final desdeJsonAntiguo = Proyecto.fromJson('p1', {'nombre': 'X', 'createdAt': null, 'updatedAt': null});
+    expect(desdeJsonAntiguo.repoConectado, false);
   });
 
   test('progresoPorcentaje por defecto es 0 y fromJson() sin el campo (documentos antiguos) también cae a 0', () {
@@ -54,6 +73,21 @@ void main() {
     });
 
     expect(proyecto.estado, EstadoProyecto.idea);
+  });
+
+  test('copyWith() permite fijar los campos de repositorio', () {
+    final ahora = DateTime(2026, 11, 12);
+    final original = Proyecto(id: 'p1', nombre: 'A', createdAt: ahora, updatedAt: ahora);
+
+    final vinculado = original.copyWith(
+      repoUrl: 'https://github.com/owner/repo',
+      repoPropietario: 'owner',
+      repoNombre: 'repo',
+    );
+
+    expect(vinculado.repoConectado, true);
+    expect(vinculado.repoPropietario, 'owner');
+    expect(vinculado.repoNombre, 'repo');
   });
 
   test('copyWith() solo cambia lo indicado y conserva el resto', () {

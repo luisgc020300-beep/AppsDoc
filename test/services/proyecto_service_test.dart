@@ -5,6 +5,7 @@ import 'package:appsdoc/models/estado_proyecto.dart';
 import 'package:appsdoc/services/auditoria_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
+import 'package:appsdoc/services/github_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:appsdoc/services/tarea_service.dart';
@@ -233,6 +234,68 @@ void main() {
 
       final despues = await ProyectoService.streamProyecto(id).first;
       expect(despues!.progresoPorcentaje, antesDeActualizar);
+    });
+  });
+
+  group('vincularRepo / desvincularRepo', () {
+    test('vincularRepo() valida la URL, guarda propietario/nombre/url y marca repoConectado', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+
+      await ProyectoService.vincularRepo(id, 'https://github.com/luisgc020300-beep/REPARA');
+
+      final proyecto = await ProyectoService.streamProyecto(id).first;
+      expect(proyecto!.repoUrl, 'https://github.com/luisgc020300-beep/REPARA');
+      expect(proyecto.repoPropietario, 'luisgc020300-beep');
+      expect(proyecto.repoNombre, 'REPARA');
+      expect(proyecto.repoConectado, true);
+    });
+
+    test('vincularRepo() con una URL que no es de GitHub lanza y no guarda nada', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+
+      await expectLater(
+        ProyectoService.vincularRepo(id, 'https://gitlab.com/x/y'),
+        throwsA(isA<UrlRepositorioInvalidaException>()),
+      );
+
+      final proyecto = await ProyectoService.streamProyecto(id).first;
+      expect(proyecto!.repoConectado, false);
+    });
+
+    test('vincularRepo() registra un evento en el historial con propietario/nombre', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+
+      await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+
+      final historial = await HistorialService.streamHistorial(id).first;
+      expect(historial.first.descripcion, contains('owner/repo'));
+    });
+
+    test('desvincularRepo() limpia los tres campos y repoConectado vuelve a false', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+      await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+
+      await ProyectoService.desvincularRepo(id);
+
+      final proyecto = await ProyectoService.streamProyecto(id).first;
+      expect(proyecto!.repoUrl, isEmpty);
+      expect(proyecto.repoPropietario, isEmpty);
+      expect(proyecto.repoNombre, isEmpty);
+      expect(proyecto.repoConectado, false);
+    });
+
+    test('vincularRepo()/desvincularRepo() nunca tocan el progreso -- es un indicador independiente', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+      final inicial = (await ProyectoService.streamProyecto(id).first)!.progresoPorcentaje;
+
+      await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+      final conRepo = (await ProyectoService.streamProyecto(id).first)!.progresoPorcentaje;
+
+      await ProyectoService.desvincularRepo(id);
+      final sinRepo = (await ProyectoService.streamProyecto(id).first)!.progresoPorcentaje;
+
+      expect(conRepo, inicial);
+      expect(sinRepo, inicial);
     });
   });
 }

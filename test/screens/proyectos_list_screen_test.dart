@@ -77,6 +77,11 @@ void main() {
 
   testWidgets('tocar un proyecto existente abre su ficha de detalle con la descripción y las secciones', (tester) async {
     await ProyectoService.crear(nombre: 'Convive', descripcion: 'Piso compartido');
+    // La ficha de detalle es más alta que el viewport por defecto del test
+    // (tarjetas de Repositorio y Progreso antes de las secciones) -- se
+    // agranda el "surface" para comprobar contenido sin pelear con scroll.
+    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(envolver(const ProyectosListScreen()));
     await tester.pumpAndSettle();

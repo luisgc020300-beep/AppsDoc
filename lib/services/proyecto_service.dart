@@ -10,6 +10,7 @@ import '../models/tipo_entidad_historial.dart';
 import 'auditoria_service.dart';
 import 'documento_service.dart';
 import 'funcionalidad_service.dart';
+import 'github_service.dart';
 import 'historial_service.dart';
 import 'progreso_service.dart';
 import 'tarea_service.dart';
@@ -116,6 +117,49 @@ class ProyectoService {
     final uid = _uid;
     if (uid == null) throw StateError('ProyectoService.eliminar: no hay sesión iniciada');
     await _coleccion(uid).doc(id).delete();
+  }
+
+  /// Valida la URL con GithubService.parseRepoUrl() (lanza
+  /// UrlRepositorioInvalidaException si no es la de un repositorio de
+  /// GitHub) antes de guardar nada -- no se persiste una URL a medio
+  /// validar. No toca recalcularProgreso(): repoConectado es un
+  /// indicador independiente, nunca parte de la rúbrica.
+  static Future<void> vincularRepo(String proyectoId, String url) async {
+    final uid = _uid;
+    if (uid == null) throw StateError('ProyectoService.vincularRepo: no hay sesión iniciada');
+
+    final (propietario: propietario, nombre: nombre) = GithubService.parseRepoUrl(url);
+
+    await _coleccion(uid).doc(proyectoId).update({
+      'repoUrl': url.trim(),
+      'repoPropietario': propietario,
+      'repoNombre': nombre,
+      'updatedAt': Timestamp.fromDate(DateTime.now()),
+    });
+    await HistorialService.registrar(
+      proyectoId: proyectoId,
+      entidad: TipoEntidadHistorial.proyecto,
+      accion: AccionHistorial.actualizado,
+      descripcion: 'Repositorio vinculado: $propietario/$nombre',
+    );
+  }
+
+  static Future<void> desvincularRepo(String proyectoId) async {
+    final uid = _uid;
+    if (uid == null) throw StateError('ProyectoService.desvincularRepo: no hay sesión iniciada');
+
+    await _coleccion(uid).doc(proyectoId).update({
+      'repoUrl': '',
+      'repoPropietario': '',
+      'repoNombre': '',
+      'updatedAt': Timestamp.fromDate(DateTime.now()),
+    });
+    await HistorialService.registrar(
+      proyectoId: proyectoId,
+      entidad: TipoEntidadHistorial.proyecto,
+      accion: AccionHistorial.actualizado,
+      descripcion: 'Repositorio desvinculado',
+    );
   }
 
   /// Orquesta la lectura de las cuatro subcolecciones que alimentan

@@ -13,9 +13,13 @@ import '../../models/documento.dart';
 import '../../models/estado_tarea.dart';
 import '../../models/evento_historial.dart';
 import '../../models/funcionalidad.dart';
+import '../../models/github_repo_info.dart';
 import '../../models/idea.dart';
+import '../../models/proyecto.dart';
 import '../../models/tarea.dart';
+import '../../services/github_service.dart';
 import '../../services/progreso_service.dart';
+import '../../services/proyecto_service.dart';
 import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
 import '../auditorias/auditoria_form_screen.dart';
@@ -109,6 +113,8 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
           ),
         ),
         const SizedBox(height: 20),
+        _SeccionGithub(proyecto: proyecto),
+        const SizedBox(height: 20),
         _SeccionProgreso(
           funcionalidades: _controller.funcionalidades,
           tareas: _controller.tareas,
@@ -128,6 +134,223 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
         const SizedBox(height: 20),
         _SeccionHistorial(historial: _controller.historial),
       ],
+    );
+  }
+}
+
+/// Repositorio vinculado -- indicador independiente (repoConectado) y
+/// resumen en vivo vía GithubService (solo lectura, sin token). Nunca
+/// suma puntos a ProgresoService, ver arquitectura aprobada de la Fase 5.
+class _SeccionGithub extends StatefulWidget {
+  const _SeccionGithub({required this.proyecto});
+
+  final Proyecto proyecto;
+
+  @override
+  State<_SeccionGithub> createState() => _SeccionGithubState();
+}
+
+class _SeccionGithubState extends State<_SeccionGithub> {
+  GithubRepoInfo? _info;
+  Object? _error;
+  bool _cargando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarResumen();
+  }
+
+  @override
+  void didUpdateWidget(_SeccionGithub oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.proyecto.repoUrl != widget.proyecto.repoUrl) {
+      _info = null;
+      _error = null;
+      _cargarResumen();
+    }
+  }
+
+  Future<void> _cargarResumen() async {
+    if (!widget.proyecto.repoConectado) return;
+    setState(() {
+      _cargando = true;
+      _error = null;
+    });
+    try {
+      final info = await GithubService.obtenerResumenRepo(
+        propietario: widget.proyecto.repoPropietario,
+        nombre: widget.proyecto.repoNombre,
+      );
+      if (!mounted) return;
+      setState(() {
+        _info = info;
+        _cargando = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _cargando = false;
+      });
+    }
+  }
+
+  Future<void> _vincular() async {
+    final urlCtrl = TextEditingController();
+    String? errorDialogo;
+    final url = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) {
+          return AlertDialog(
+            title: const Text('Vincular repositorio'),
+            content: TextField(
+              controller: urlCtrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'URL de GitHub',
+                hintText: 'https://github.com/usuario/repositorio',
+                errorText: errorDialogo,
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+              FilledButton(
+                onPressed: () {
+                  try {
+                    GithubService.parseRepoUrl(urlCtrl.text);
+                    Navigator.pop(ctx, urlCtrl.text.trim());
+                  } on UrlRepositorioInvalidaException {
+                    setStateDialog(() => errorDialogo = 'Esa URL no parece la de un repositorio de GitHub');
+                  }
+                },
+                child: const Text('Vincular'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (url == null || !mounted) return;
+    try {
+      await ProyectoService.vincularRepo(widget.proyecto.id, url);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo vincular: $e')));
+      }
+    }
+  }
+
+  Future<void> _desvincular() async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Desvincular repositorio?'),
+        content: Text(
+          'Se quitará el enlace a "${widget.proyecto.repoPropietario}/${widget.proyecto.repoNombre}". '
+          'Esto no afecta al repositorio en GitHub.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Desvincular')),
+        ],
+      ),
+    );
+    if (confirmar == true) await ProyectoService.desvincularRepo(widget.proyecto.id);
+  }
+
+  String _mensajeError(Object error) {
+    if (error is RepositorioNoEncontradoOPrivadoException) return error.toString();
+    if (error is LimiteDePeticionesGithubException) return error.toString();
+    return 'No se pudo conectar con GitHub.';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final proyecto = widget.proyecto;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.hub_outlined, size: 18, color: proyecto.repoConectado ? colors.success : colors.textMuted),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Repositorio', style: Theme.of(context).textTheme.titleMedium)),
+                Text(
+                  proyecto.repoConectado ? 'Conectado' : 'Sin conectar',
+                  style: TextStyle(color: proyecto.repoConectado ? colors.success : colors.textMuted, fontSize: 12),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (!proyecto.repoConectado) ...[
+              Text('Sin repositorio vinculado.', style: TextStyle(color: colors.textMuted)),
+              const SizedBox(height: 10),
+              FilledButton.tonal(onPressed: _vincular, child: const Text('Vincular repositorio')),
+            ] else ...[
+              Text('${proyecto.repoPropietario}/${proyecto.repoNombre}', style: AppsDocText.mono(color: colors.textPrimary)),
+              const SizedBox(height: 10),
+              if (_cargando)
+                const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Center(child: CircularProgressIndicator()))
+              else if (_error != null)
+                Row(
+                  children: [
+                    Icon(Icons.error_outline, size: 16, color: colors.danger),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(_mensajeError(_error!), style: TextStyle(color: colors.danger))),
+                    IconButton(icon: const Icon(Icons.refresh), tooltip: 'Reintentar', onPressed: _cargarResumen),
+                  ],
+                )
+              else if (_info != null) ...[
+                _FilaInfoRepo(icono: Icons.account_tree_outlined, etiqueta: 'Rama principal', valor: _info!.ramaPrincipal),
+                _FilaInfoRepo(icono: Icons.commit_outlined, etiqueta: 'Último commit', valor: _info!.ultimoCommitMensaje),
+                _FilaInfoRepo(
+                  icono: Icons.schedule_outlined,
+                  etiqueta: 'Actualizado',
+                  valor: DateFormat('dd/MM/yyyy HH:mm').format(_info!.actualizadoEn),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: _desvincular,
+                  child: Text('Desvincular repositorio', style: TextStyle(color: colors.danger)),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilaInfoRepo extends StatelessWidget {
+  const _FilaInfoRepo({required this.icono, required this.etiqueta, required this.valor});
+
+  final IconData icono;
+  final String etiqueta;
+  final String valor;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(icono, size: 15, color: colors.textMuted),
+          const SizedBox(width: 6),
+          Text('$etiqueta: ', style: TextStyle(color: colors.textMuted)),
+          Expanded(child: Text(valor, overflow: TextOverflow.ellipsis)),
+        ],
+      ),
     );
   }
 }

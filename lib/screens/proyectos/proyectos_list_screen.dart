@@ -165,6 +165,13 @@ class _ProyectoCard extends StatelessWidget {
                         Icon(estado.icono, size: 14, color: estado.color),
                         const SizedBox(width: 4),
                         Text(estado.etiqueta, style: TextStyle(color: estado.color, fontSize: 12)),
+                        if (proyecto.repoConectado) ...[
+                          const SizedBox(width: 8),
+                          Tooltip(
+                            message: 'Repositorio conectado',
+                            child: Icon(Icons.hub_outlined, size: 14, color: context.colors.success),
+                          ),
+                        ],
                       ],
                     ),
                   ],
