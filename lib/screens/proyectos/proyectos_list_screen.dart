@@ -5,6 +5,7 @@ import '../../controllers/proyectos_list_controller.dart';
 import '../../models/proyecto.dart';
 import '../../theme/design_tokens.dart';
 import '../ajustes/ajustes_screen.dart';
+import 'proyecto_detail_screen.dart';
 import 'proyecto_form_screen.dart';
 
 class ProyectosListScreen extends StatefulWidget {
@@ -57,7 +58,7 @@ class _ProyectosListScreenState extends State<ProyectosListScreen> {
               proyecto: proyectos[i],
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => ProyectoFormScreen(proyectoExistente: proyectos[i])),
+                MaterialPageRoute(builder: (_) => ProyectoDetailScreen(proyectoId: proyectos[i].id)),
               ),
             ),
           );

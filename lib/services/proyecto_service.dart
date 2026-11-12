@@ -33,6 +33,14 @@ class ProyectoService {
     );
   }
 
+  /// `null` mientras no hay sesión o si el proyecto no existe (incluido
+  /// justo después de haberse eliminado) -- la UI trata ambos casos igual.
+  static Stream<Proyecto?> streamProyecto(String id) {
+    final uid = _uid;
+    if (uid == null) return Stream.value(null);
+    return _coleccion(uid).doc(id).snapshots().map((d) => d.exists ? Proyecto.fromJson(d.id, d.data()!) : null);
+  }
+
   static Future<String> crear({required String nombre, String descripcion = '', EstadoProyecto estado = EstadoProyecto.idea}) async {
     final uid = _uid;
     if (uid == null) throw StateError('ProyectoService.crear: no hay sesión iniciada');

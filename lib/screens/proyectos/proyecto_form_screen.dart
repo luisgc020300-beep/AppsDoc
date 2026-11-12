@@ -79,7 +79,10 @@ class _ProyectoFormScreenState extends State<ProyectoFormScreen> {
     setState(() => _guardando = true);
     try {
       await ProyectoService.eliminar(widget.proyectoExistente!.id);
-      if (mounted) Navigator.pop(context);
+      // true = "se eliminó" -- quien abrió esta pantalla (el detalle del
+      // proyecto) lo usa para cerrarse también, ya que no tiene sentido
+      // seguir mostrando la ficha de un proyecto que ya no existe.
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
       setState(() {
         _error = e.toString();

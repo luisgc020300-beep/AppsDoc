@@ -102,4 +102,29 @@ void main() {
 
     expect(proyectos.map((p) => p.id), [idNuevo, idViejo]);
   });
+
+  test('streamProyecto(id) devuelve ese proyecto concreto', () async {
+    final id = await ProyectoService.crear(nombre: 'Uno', descripcion: 'd');
+    await ProyectoService.crear(nombre: 'Otro');
+
+    final proyecto = await ProyectoService.streamProyecto(id).first;
+
+    expect(proyecto, isNotNull);
+    expect(proyecto!.nombre, 'Uno');
+  });
+
+  test('streamProyecto(id) devuelve null si no existe (o ya se eliminó)', () async {
+    final id = await ProyectoService.crear(nombre: 'Efímero');
+    await ProyectoService.eliminar(id);
+
+    final proyecto = await ProyectoService.streamProyecto(id).first;
+
+    expect(proyecto, isNull);
+  });
+
+  test('streamProyecto(id) devuelve null sin sesión', () async {
+    ProyectoService.debugUidOverride = null;
+
+    expect(await ProyectoService.streamProyecto('cualquiera').first, isNull);
+  });
 }
