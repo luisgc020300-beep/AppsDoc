@@ -1,8 +1,12 @@
 // test/services/documento_service_test.dart
 import 'package:appsdoc/models/accion_historial.dart';
 import 'package:appsdoc/models/categoria_documento.dart';
+import 'package:appsdoc/services/auditoria_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
+import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
+import 'package:appsdoc/services/proyecto_service.dart';
+import 'package:appsdoc/services/tarea_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,12 +14,23 @@ void main() {
   late FakeFirebaseFirestore db;
   const proyectoId = 'p1';
 
+  // crear()/actualizar()/eliminar() disparan recalcularProgreso(), que lee
+  // las otras tres subcolecciones y escribe en ProyectoService -- todos
+  // necesitan su seam de test apuntando al mismo Firestore falso.
   setUp(() {
     db = FakeFirebaseFirestore();
     DocumentoService.debugFirestoreOverride = db;
     DocumentoService.debugUidOverride = 'uid-1';
     HistorialService.debugFirestoreOverride = db;
     HistorialService.debugUidOverride = 'uid-1';
+    ProyectoService.debugFirestoreOverride = db;
+    ProyectoService.debugUidOverride = 'uid-1';
+    FuncionalidadService.debugFirestoreOverride = db;
+    FuncionalidadService.debugUidOverride = 'uid-1';
+    TareaService.debugFirestoreOverride = db;
+    TareaService.debugUidOverride = 'uid-1';
+    AuditoriaService.debugFirestoreOverride = db;
+    AuditoriaService.debugUidOverride = 'uid-1';
   });
 
   tearDown(() {
@@ -23,6 +38,14 @@ void main() {
     DocumentoService.debugUidOverride = null;
     HistorialService.debugFirestoreOverride = null;
     HistorialService.debugUidOverride = null;
+    ProyectoService.debugFirestoreOverride = null;
+    ProyectoService.debugUidOverride = null;
+    FuncionalidadService.debugFirestoreOverride = null;
+    FuncionalidadService.debugUidOverride = null;
+    TareaService.debugFirestoreOverride = null;
+    TareaService.debugUidOverride = null;
+    AuditoriaService.debugFirestoreOverride = null;
+    AuditoriaService.debugUidOverride = null;
   });
 
   test('crear() guarda bajo usuarios/{uid}/proyectos/{proyectoId}/documentos y streamDocumentos() lo devuelve', () async {

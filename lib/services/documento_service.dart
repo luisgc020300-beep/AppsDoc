@@ -8,6 +8,7 @@ import '../models/categoria_documento.dart';
 import '../models/documento.dart';
 import '../models/tipo_entidad_historial.dart';
 import 'historial_service.dart';
+import 'proyecto_service.dart';
 
 class DocumentoService {
   @visibleForTesting
@@ -59,6 +60,7 @@ class DocumentoService {
       accion: AccionHistorial.creado,
       descripcion: 'Documento creado: "$tituloLimpio"',
     );
+    await ProyectoService.recalcularProgreso(proyectoId);
     return ref.id;
   }
 
@@ -98,6 +100,7 @@ class DocumentoService {
         accion: AccionHistorial.actualizado,
         descripcion: 'Documento actualizado (${camposCambiados.join(', ')})',
       );
+      await ProyectoService.recalcularProgreso(proyectoId);
     }
   }
 
@@ -105,5 +108,6 @@ class DocumentoService {
     final uid = _uid;
     if (uid == null) throw StateError('DocumentoService.eliminar: no hay sesión iniciada');
     await _coleccion(uid, proyectoId).doc(id).delete();
+    await ProyectoService.recalcularProgreso(proyectoId);
   }
 }

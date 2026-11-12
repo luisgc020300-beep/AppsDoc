@@ -64,18 +64,25 @@ void main() {
     expect(find.text('Mantenimiento del hogar'), findsOneWidget);
     expect(find.text('Funcionalidades'), findsOneWidget);
     expect(find.text('Documentación'), findsOneWidget);
-    expect(find.text('Tareas'), findsOneWidget);
-    expect(find.text('Ideas'), findsOneWidget);
-    expect(find.text('Auditorías'), findsOneWidget);
     expect(find.text('Sin funcionalidades todavía.'), findsOneWidget);
     expect(find.text('Sin documentos todavía.'), findsOneWidget);
+
+    // A partir de aquí las secciones quedan fuera del viewport por defecto
+    // del test (la tarjeta de Progreso las empuja más abajo). La pantalla es
+    // una sola lista larga de secciones (sin tabs), así que hace falta ir
+    // bajando, en orden, para que cada una se construya antes de mirarla.
+    await tester.scrollUntilVisible(find.text('Tareas'), 300);
+    expect(find.text('Tareas'), findsOneWidget);
     expect(find.text('Sin tareas todavía.'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('Ideas'), 300);
+    expect(find.text('Ideas'), findsOneWidget);
     expect(find.text('Sin ideas todavía.'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('Auditorías'), 300);
+    expect(find.text('Auditorías'), findsOneWidget);
     expect(find.text('Sin auditorías todavía.'), findsOneWidget);
 
-    // Historial es la última sección -- queda fuera del viewport por
-    // defecto del test. La pantalla es una sola lista larga de secciones
-    // (sin tabs), así que hace falta bajar para verla.
     await tester.scrollUntilVisible(find.text('Historial'), 300);
     expect(find.text('Historial'), findsOneWidget);
     // El propio crear() del proyecto ya dejó un evento -- nunca está vacío.
@@ -159,7 +166,8 @@ void main() {
     await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(2));
+    await tester.scrollUntilVisible(find.byTooltip('Añadir tarea'), 300);
+    await tester.tap(find.byTooltip('Añadir tarea'));
     await tester.pumpAndSettle();
     expect(find.byType(TareaFormScreen), findsOneWidget);
 
@@ -179,7 +187,8 @@ void main() {
     await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(3));
+    await tester.scrollUntilVisible(find.byTooltip('Añadir idea'), 300);
+    await tester.tap(find.byTooltip('Añadir idea'));
     await tester.pumpAndSettle();
     expect(find.byType(IdeaFormScreen), findsOneWidget);
 
@@ -199,6 +208,7 @@ void main() {
     await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(find.text('Pendiente'), 300);
     expect(find.text('Pendiente'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.more_vert));
@@ -217,7 +227,8 @@ void main() {
     await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(4));
+    await tester.scrollUntilVisible(find.byTooltip('Añadir auditoría'), 300);
+    await tester.tap(find.byTooltip('Añadir auditoría'));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.widgetWithText(TextFormField, 'Resumen'), 'Primera auditoría');
@@ -239,7 +250,8 @@ void main() {
     await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(2));
+    await tester.scrollUntilVisible(find.byTooltip('Añadir tarea'), 300);
+    await tester.tap(find.byTooltip('Añadir tarea'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Tarea con historial');
     await tester.ensureVisible(find.widgetWithText(FilledButton, 'Crear tarea'));
@@ -248,5 +260,41 @@ void main() {
 
     await tester.scrollUntilVisible(find.textContaining('Tarea creada: "Tarea con historial"'), 300);
     expect(find.textContaining('Tarea creada: "Tarea con historial"'), findsOneWidget);
+  });
+
+  testWidgets('muestra el porcentaje y el desglose de los cuatro criterios de progreso', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Preparación para publicar'), findsOneWidget);
+    expect(find.text('45%'), findsOneWidget);
+    expect(find.text('Funcionalidades completadas'), findsOneWidget);
+    expect(find.text('0/40'), findsOneWidget);
+    expect(find.text('Sin hallazgos críticos abiertos'), findsOneWidget);
+    expect(find.text('30/30'), findsOneWidget);
+    expect(find.text('Tareas al día'), findsOneWidget);
+    expect(find.text('15/15'), findsOneWidget);
+    expect(find.text('Documentación base'), findsOneWidget);
+    expect(find.text('0/15'), findsOneWidget);
+  });
+
+  testWidgets('completar la única funcionalidad sube el progreso en vivo, sin recargar la pantalla', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    await FuncionalidadService.crear(proyectoId: id, nombre: 'Login');
+
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
+    await tester.pumpAndSettle();
+    expect(find.text('45%'), findsOneWidget);
+
+    await tester.tap(find.text('Login'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Completada'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Guardar cambios'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('85%'), findsOneWidget);
+    expect(find.text('45%'), findsNothing);
   });
 }

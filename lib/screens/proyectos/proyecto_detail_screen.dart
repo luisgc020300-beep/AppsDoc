@@ -15,6 +15,7 @@ import '../../models/evento_historial.dart';
 import '../../models/funcionalidad.dart';
 import '../../models/idea.dart';
 import '../../models/tarea.dart';
+import '../../services/progreso_service.dart';
 import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
 import '../auditorias/auditoria_form_screen.dart';
@@ -108,6 +109,13 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
           ),
         ),
         const SizedBox(height: 20),
+        _SeccionProgreso(
+          funcionalidades: _controller.funcionalidades,
+          tareas: _controller.tareas,
+          documentos: _controller.documentos,
+          auditorias: _controller.auditorias,
+        ),
+        const SizedBox(height: 20),
         _SeccionFuncionalidades(proyectoId: widget.proyectoId, funcionalidades: _controller.funcionalidades),
         const SizedBox(height: 20),
         _SeccionDocumentacion(proyectoId: widget.proyectoId, documentos: _controller.documentos),
@@ -120,6 +128,101 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
         const SizedBox(height: 20),
         _SeccionHistorial(historial: _controller.historial),
       ],
+    );
+  }
+}
+
+/// El porcentaje y el desglose se calculan aquí mismo, en vivo, a partir
+/// de las listas que ya tiene cargadas el controller -- ProgresoService
+/// es puro, así que no hace falta volver a tocar Firestore para esto. El
+/// Proyecto.progresoPorcentaje cacheado es solo para el listado (que no
+/// carga estas cuatro subcolecciones); aquí, con los datos ya en mano,
+/// calcular en vivo es más preciso que depender de la caché.
+class _SeccionProgreso extends StatelessWidget {
+  const _SeccionProgreso({
+    required this.funcionalidades,
+    required this.tareas,
+    required this.documentos,
+    required this.auditorias,
+  });
+
+  final List<Funcionalidad>? funcionalidades;
+  final List<Tarea>? tareas;
+  final List<Documento>? documentos;
+  final List<Auditoria>? auditorias;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    if (funcionalidades == null || tareas == null || documentos == null || auditorias == null) {
+      return const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()));
+    }
+
+    final resultado = ProgresoService.calcular(
+      funcionalidades: funcionalidades!,
+      tareas: tareas!,
+      documentos: documentos!,
+      auditorias: auditorias!,
+    );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 52,
+                        height: 52,
+                        child: CircularProgressIndicator(
+                          value: resultado.porcentaje / 100,
+                          strokeWidth: 5,
+                          backgroundColor: colors.surfaceMuted,
+                          valueColor: AlwaysStoppedAnimation(colors.accent),
+                        ),
+                      ),
+                      Text('${resultado.porcentaje}%', style: Theme.of(context).textTheme.titleSmall),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    'Preparación para publicar',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ...resultado.criterios.map(
+              (c) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      c.cumplido ? Icons.check_circle : Icons.radio_button_unchecked,
+                      size: 18,
+                      color: c.cumplido ? colors.success : colors.textMuted,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(c.nombre)),
+                    Text('${c.puntosObtenidos}/${c.puntosMaximos}', style: TextStyle(color: colors.textMuted)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

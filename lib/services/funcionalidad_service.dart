@@ -8,6 +8,7 @@ import '../models/estado_funcionalidad.dart';
 import '../models/funcionalidad.dart';
 import '../models/tipo_entidad_historial.dart';
 import 'historial_service.dart';
+import 'proyecto_service.dart';
 
 class FuncionalidadService {
   @visibleForTesting
@@ -61,6 +62,7 @@ class FuncionalidadService {
       accion: AccionHistorial.creado,
       descripcion: 'Funcionalidad creada: "$nombreLimpio"',
     );
+    await ProyectoService.recalcularProgreso(proyectoId);
     return ref.id;
   }
 
@@ -105,6 +107,7 @@ class FuncionalidadService {
         accion: AccionHistorial.actualizado,
         descripcion: 'Funcionalidad actualizada (${camposCambiados.join(', ')})',
       );
+      await ProyectoService.recalcularProgreso(proyectoId);
     }
   }
 
@@ -112,5 +115,6 @@ class FuncionalidadService {
     final uid = _uid;
     if (uid == null) throw StateError('FuncionalidadService.eliminar: no hay sesión iniciada');
     await _coleccion(uid, proyectoId).doc(id).delete();
+    await ProyectoService.recalcularProgreso(proyectoId);
   }
 }

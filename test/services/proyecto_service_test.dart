@@ -1,20 +1,36 @@
 // test/services/proyecto_service_test.dart
 import 'package:appsdoc/models/accion_historial.dart';
+import 'package:appsdoc/models/estado_funcionalidad.dart';
 import 'package:appsdoc/models/estado_proyecto.dart';
+import 'package:appsdoc/services/auditoria_service.dart';
+import 'package:appsdoc/services/documento_service.dart';
+import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
+import 'package:appsdoc/services/tarea_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   late FakeFirebaseFirestore db;
 
+  // crear() de ProyectoService siempre dispara recalcularProgreso(), que a
+  // su vez lee las cuatro subcolecciones -- todos los servicios implicados
+  // necesitan su propio seam de test apuntando al mismo Firestore falso.
   setUp(() {
     db = FakeFirebaseFirestore();
     ProyectoService.debugFirestoreOverride = db;
     ProyectoService.debugUidOverride = 'uid-1';
     HistorialService.debugFirestoreOverride = db;
     HistorialService.debugUidOverride = 'uid-1';
+    FuncionalidadService.debugFirestoreOverride = db;
+    FuncionalidadService.debugUidOverride = 'uid-1';
+    TareaService.debugFirestoreOverride = db;
+    TareaService.debugUidOverride = 'uid-1';
+    DocumentoService.debugFirestoreOverride = db;
+    DocumentoService.debugUidOverride = 'uid-1';
+    AuditoriaService.debugFirestoreOverride = db;
+    AuditoriaService.debugUidOverride = 'uid-1';
   });
 
   tearDown(() {
@@ -22,6 +38,14 @@ void main() {
     ProyectoService.debugUidOverride = null;
     HistorialService.debugFirestoreOverride = null;
     HistorialService.debugUidOverride = null;
+    FuncionalidadService.debugFirestoreOverride = null;
+    FuncionalidadService.debugUidOverride = null;
+    TareaService.debugFirestoreOverride = null;
+    TareaService.debugUidOverride = null;
+    DocumentoService.debugFirestoreOverride = null;
+    DocumentoService.debugUidOverride = null;
+    AuditoriaService.debugFirestoreOverride = null;
+    AuditoriaService.debugUidOverride = null;
   });
 
   test('crear() guarda el proyecto bajo usuarios/{uid}/proyectos y streamProyectos() lo devuelve', () async {
@@ -163,5 +187,52 @@ void main() {
 
     final historial = await HistorialService.streamHistorial(id).first;
     expect(historial, hasLength(1), reason: 'solo el de crear()');
+  });
+
+  group('progresoPorcentaje (recalcularProgreso)', () {
+    test('crear() ya calcula un progreso real, no 0 a secas', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+
+      final proyecto = await ProyectoService.streamProyecto(id).first;
+
+      // Sin funcionalidades/tareas/documentos/auditorías: 0 (funcionalidades)
+      // + 30 (sin hallazgos críticos) + 15 (sin tareas vencidas) + 0 (sin
+      // documentación base) = 45.
+      expect(proyecto!.progresoPorcentaje, 45);
+    });
+
+    test('crear una funcionalidad completada sube el progreso del proyecto', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+
+      await FuncionalidadService.crear(proyectoId: id, nombre: 'Login', estado: EstadoFuncionalidad.completada);
+
+      final proyecto = await ProyectoService.streamProyecto(id).first;
+      expect(proyecto!.progresoPorcentaje, 85); // 45 + 40 (100% de 1/1 completada)
+    });
+
+    test('actualizar() de nombre/descripción/estado del proyecto no recalcula el progreso', () async {
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+      final inicial = (await ProyectoService.streamProyecto(id).first)!.progresoPorcentaje;
+
+      await ProyectoService.actualizar(id, estado: EstadoProyecto.lanzado);
+
+      final actualizado = await ProyectoService.streamProyecto(id).first;
+      expect(actualizado!.progresoPorcentaje, inicial);
+    });
+
+    test('no hay ningún parámetro para fijar progresoPorcentaje a mano en crear() ni en actualizar()', () async {
+      // Documentado como prueba, no solo como comentario: si alguien añade
+      // ese parámetro más adelante, este test obliga a revisar la
+      // decisión explícitamente ("no permitir modificar manualmente el
+      // porcentaje").
+      final id = await ProyectoService.crear(nombre: 'REPARA');
+      await FuncionalidadService.crear(proyectoId: id, nombre: 'X', estado: EstadoFuncionalidad.completada);
+      final antesDeActualizar = (await ProyectoService.streamProyecto(id).first)!.progresoPorcentaje;
+
+      await ProyectoService.actualizar(id, nombre: 'Otro nombre');
+
+      final despues = await ProyectoService.streamProyecto(id).first;
+      expect(despues!.progresoPorcentaje, antesDeActualizar);
+    });
   });
 }

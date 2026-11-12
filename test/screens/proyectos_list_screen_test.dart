@@ -113,4 +113,13 @@ void main() {
     expect(find.byType(ProyectoDetailScreen), findsNothing);
     expect(find.text('Todavía no tienes ningún proyecto'), findsOneWidget);
   });
+
+  testWidgets('la tarjeta de un proyecto recién creado muestra su progreso real (45%), nunca 0% a secas', (tester) async {
+    await ProyectoService.crear(nombre: 'REPARA');
+
+    await tester.pumpWidget(envolver(const ProyectosListScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('45%'), findsOneWidget);
+  });
 }

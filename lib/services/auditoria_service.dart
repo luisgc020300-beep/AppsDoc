@@ -12,6 +12,7 @@ import '../models/origen_auditoria.dart';
 import '../models/resultado_auditoria.dart';
 import '../models/tipo_entidad_historial.dart';
 import 'historial_service.dart';
+import 'proyecto_service.dart';
 
 class AuditoriaService {
   @visibleForTesting
@@ -79,6 +80,7 @@ class AuditoriaService {
       accion: AccionHistorial.creado,
       descripcion: 'Auditoría creada (origen: ${origen.etiqueta}, resultado: ${resultado.etiqueta})',
     );
+    await ProyectoService.recalcularProgreso(proyectoId);
     return ref.id;
   }
 
@@ -86,6 +88,7 @@ class AuditoriaService {
     final uid = _uid;
     if (uid == null) throw StateError('AuditoriaService.eliminar: no hay sesión iniciada');
     await _coleccion(uid, proyectoId).doc(id).delete();
+    await ProyectoService.recalcularProgreso(proyectoId);
   }
 
   static Future<DocumentSnapshot<Map<String, dynamic>>> _doc(String uid, String proyectoId, String id) =>
@@ -123,6 +126,7 @@ class AuditoriaService {
       accion: AccionHistorial.actualizado,
       descripcion: 'Auditoría actualizada (nuevo hallazgo: "$tituloLimpio")',
     );
+    await ProyectoService.recalcularProgreso(proyectoId);
   }
 
   static Future<void> actualizarEstadoHallazgo(
@@ -153,6 +157,7 @@ class AuditoriaService {
       accion: AccionHistorial.actualizado,
       descripcion: 'Auditoría actualizada (hallazgo "${tituloAfectado ?? hallazgoId}" → ${nuevoEstado.etiqueta})',
     );
+    await ProyectoService.recalcularProgreso(proyectoId);
   }
 
   static Future<void> eliminarHallazgo(String proyectoId, String auditoriaId, String hallazgoId) async {
@@ -167,5 +172,6 @@ class AuditoriaService {
       'hallazgos': hallazgos.map((h) => h.toJson()).toList(),
       'updatedAt': Timestamp.fromDate(DateTime.now()),
     });
+    await ProyectoService.recalcularProgreso(proyectoId);
   }
 }

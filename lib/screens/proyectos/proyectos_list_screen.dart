@@ -170,10 +170,46 @@ class _ProyectoCard extends StatelessWidget {
                   ],
                 ),
               ),
+              _AnilloProgreso(porcentaje: proyecto.progresoPorcentaje),
+              const SizedBox(width: 4),
               const Icon(Icons.chevron_right),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Mismo número que en la ficha del proyecto (ProgresoService.calcular(),
+/// cacheado en Proyecto.progresoPorcentaje) -- aquí solo se pinta, nunca
+/// se recalcula ni se deja tocar.
+class _AnilloProgreso extends StatelessWidget {
+  const _AnilloProgreso({required this.porcentaje});
+
+  final int porcentaje;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 36,
+            height: 36,
+            child: CircularProgressIndicator(
+              value: porcentaje / 100,
+              strokeWidth: 3,
+              backgroundColor: colors.surfaceMuted,
+              valueColor: AlwaysStoppedAnimation(colors.accent),
+            ),
+          ),
+          Text('$porcentaje%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: colors.textMuted)),
+        ],
       ),
     );
   }

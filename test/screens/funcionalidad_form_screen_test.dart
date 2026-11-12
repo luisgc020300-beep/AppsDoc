@@ -1,8 +1,12 @@
 // test/screens/funcionalidad_form_screen_test.dart
 import 'package:appsdoc/models/estado_funcionalidad.dart';
 import 'package:appsdoc/screens/funcionalidades/funcionalidad_form_screen.dart';
+import 'package:appsdoc/services/auditoria_service.dart';
+import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
+import 'package:appsdoc/services/proyecto_service.dart';
+import 'package:appsdoc/services/tarea_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +19,14 @@ void main() {
     FuncionalidadService.debugUidOverride = 'uid-test';
     HistorialService.debugFirestoreOverride = db;
     HistorialService.debugUidOverride = 'uid-test';
+    ProyectoService.debugFirestoreOverride = db;
+    ProyectoService.debugUidOverride = 'uid-test';
+    TareaService.debugFirestoreOverride = db;
+    TareaService.debugUidOverride = 'uid-test';
+    DocumentoService.debugFirestoreOverride = db;
+    DocumentoService.debugUidOverride = 'uid-test';
+    AuditoriaService.debugFirestoreOverride = db;
+    AuditoriaService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -22,6 +34,14 @@ void main() {
     FuncionalidadService.debugUidOverride = null;
     HistorialService.debugFirestoreOverride = null;
     HistorialService.debugUidOverride = null;
+    ProyectoService.debugFirestoreOverride = null;
+    ProyectoService.debugUidOverride = null;
+    TareaService.debugFirestoreOverride = null;
+    TareaService.debugUidOverride = null;
+    DocumentoService.debugFirestoreOverride = null;
+    DocumentoService.debugUidOverride = null;
+    AuditoriaService.debugFirestoreOverride = null;
+    AuditoriaService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);

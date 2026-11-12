@@ -11,6 +11,7 @@ void main() {
       nombre: 'RiskRunner',
       descripcion: 'Conquista territorial de running',
       estado: EstadoProyecto.enDesarrollo,
+      progresoPorcentaje: 72,
       createdAt: ahora,
       updatedAt: ahora,
     );
@@ -21,8 +22,26 @@ void main() {
     expect(reconstruido.nombre, 'RiskRunner');
     expect(reconstruido.descripcion, 'Conquista territorial de running');
     expect(reconstruido.estado, EstadoProyecto.enDesarrollo);
+    expect(reconstruido.progresoPorcentaje, 72);
     expect(reconstruido.createdAt, ahora);
     expect(reconstruido.updatedAt, ahora);
+  });
+
+  test('progresoPorcentaje por defecto es 0 y fromJson() sin el campo (documentos antiguos) también cae a 0', () {
+    final nuevo = Proyecto(id: 'p1', nombre: 'X', createdAt: DateTime.now(), updatedAt: DateTime.now());
+    expect(nuevo.progresoPorcentaje, 0);
+
+    final desdeJsonAntiguo = Proyecto.fromJson('p1', {'nombre': 'X', 'createdAt': null, 'updatedAt': null});
+    expect(desdeJsonAntiguo.progresoPorcentaje, 0);
+  });
+
+  test('copyWith() nunca permite cambiar progresoPorcentaje -- no existe ese parámetro', () {
+    final ahora = DateTime(2026, 11, 12);
+    final original = Proyecto(id: 'p1', nombre: 'A', progresoPorcentaje: 55, createdAt: ahora, updatedAt: ahora);
+
+    final actualizado = original.copyWith(nombre: 'B');
+
+    expect(actualizado.progresoPorcentaje, 55, reason: 'copyWith() no tiene ningún parámetro para tocarlo a mano');
   });
 
   test('fromJson() con un estado desconocido cae a EstadoProyecto.idea', () {

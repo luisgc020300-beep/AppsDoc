@@ -9,6 +9,7 @@ import '../models/prioridad_tarea.dart';
 import '../models/tarea.dart';
 import '../models/tipo_entidad_historial.dart';
 import 'historial_service.dart';
+import 'proyecto_service.dart';
 
 class TareaService {
   @visibleForTesting
@@ -64,6 +65,7 @@ class TareaService {
       accion: AccionHistorial.creado,
       descripcion: 'Tarea creada: "$tituloLimpio"',
     );
+    await ProyectoService.recalcularProgreso(proyectoId);
     return ref.id;
   }
 
@@ -121,6 +123,7 @@ class TareaService {
         accion: AccionHistorial.actualizado,
         descripcion: 'Tarea actualizada (${camposCambiados.join(', ')})',
       );
+      await ProyectoService.recalcularProgreso(proyectoId);
     }
   }
 
@@ -128,5 +131,6 @@ class TareaService {
     final uid = _uid;
     if (uid == null) throw StateError('TareaService.eliminar: no hay sesión iniciada');
     await _coleccion(uid, proyectoId).doc(id).delete();
+    await ProyectoService.recalcularProgreso(proyectoId);
   }
 }

@@ -7,7 +7,12 @@ import '../models/accion_historial.dart';
 import '../models/estado_proyecto.dart';
 import '../models/proyecto.dart';
 import '../models/tipo_entidad_historial.dart';
+import 'auditoria_service.dart';
+import 'documento_service.dart';
+import 'funcionalidad_service.dart';
 import 'historial_service.dart';
+import 'progreso_service.dart';
+import 'tarea_service.dart';
 
 class ProyectoService {
   /// Seams de solo test -- nunca se asignan en código de producción. Mismo
@@ -67,6 +72,10 @@ class ProyectoService {
       accion: AccionHistorial.creado,
       descripcion: 'Proyecto creado: "$nombreLimpio"',
     );
+    // Un proyecto recién creado ya tiene un progreso real (aunque sea
+    // bajo): calcularlo ahora evita que la ficha/listado muestren 0% por
+    // defecto hasta la primera mutación de una subcolección.
+    await recalcularProgreso(ref.id);
     return ref.id;
   }
 
@@ -107,5 +116,31 @@ class ProyectoService {
     final uid = _uid;
     if (uid == null) throw StateError('ProyectoService.eliminar: no hay sesión iniciada');
     await _coleccion(uid).doc(id).delete();
+  }
+
+  /// Orquesta la lectura de las cuatro subcolecciones que alimentan
+  /// ProgresoService.calcular() (que en sí es puro, sin Firestore) y
+  /// cachea el resultado en Proyecto.progresoPorcentaje. La llaman
+  /// Funcionalidad/Tarea/Documento/AuditoriaService tras cualquiera de
+  /// sus propias escrituras -- nunca la UI directamente, así que el
+  /// porcentaje jamás se desvía de lo que de verdad hay en esas
+  /// colecciones.
+  static Future<void> recalcularProgreso(String proyectoId) async {
+    final uid = _uid;
+    if (uid == null) return;
+
+    final resultado = ProgresoService.calcular(
+      funcionalidades: await FuncionalidadService.streamFuncionalidades(proyectoId).first,
+      tareas: await TareaService.streamTareas(proyectoId).first,
+      documentos: await DocumentoService.streamDocumentos(proyectoId).first,
+      auditorias: await AuditoriaService.streamAuditorias(proyectoId).first,
+    );
+
+    // set+merge, no update: los tests de cada subcolección (Funcionalidad/
+    // Tarea/Documento/Auditoria) a menudo usan un proyectoId de prueba que
+    // no existe como documento real -- update() exigiría que ya existiera,
+    // set+merge funciona igual de bien cuando sí existe y no falla cuando
+    // no.
+    await _coleccion(uid).doc(proyectoId).set({'progresoPorcentaje': resultado.porcentaje}, SetOptions(merge: true));
   }
 }
