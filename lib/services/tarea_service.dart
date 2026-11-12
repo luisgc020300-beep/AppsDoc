@@ -3,9 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/accion_historial.dart';
 import '../models/estado_tarea.dart';
 import '../models/prioridad_tarea.dart';
 import '../models/tarea.dart';
+import '../models/tipo_entidad_historial.dart';
+import 'historial_service.dart';
 
 class TareaService {
   @visibleForTesting
@@ -55,6 +58,12 @@ class TareaService {
         updatedAt: ahora,
       ).toJson(),
     );
+    await HistorialService.registrar(
+      proyectoId: proyectoId,
+      entidad: TipoEntidadHistorial.tarea,
+      accion: AccionHistorial.creado,
+      descripcion: 'Tarea creada: "$tituloLimpio"',
+    );
     return ref.id;
   }
 
@@ -79,17 +88,40 @@ class TareaService {
     }
 
     final cambios = <String, dynamic>{'updatedAt': Timestamp.fromDate(DateTime.now())};
-    if (titulo != null) cambios['titulo'] = titulo.trim();
-    if (descripcion != null) cambios['descripcion'] = descripcion.trim();
-    if (estado != null) cambios['estado'] = estado.name;
-    if (prioridad != null) cambios['prioridad'] = prioridad.name;
+    final camposCambiados = <String>[];
+    if (titulo != null) {
+      cambios['titulo'] = titulo.trim();
+      camposCambiados.add('título');
+    }
+    if (descripcion != null) {
+      cambios['descripcion'] = descripcion.trim();
+      camposCambiados.add('descripción');
+    }
+    if (estado != null) {
+      cambios['estado'] = estado.name;
+      camposCambiados.add('estado');
+    }
+    if (prioridad != null) {
+      cambios['prioridad'] = prioridad.name;
+      camposCambiados.add('prioridad');
+    }
     if (quitarFechaLimite) {
       cambios['fechaLimite'] = null;
+      camposCambiados.add('fecha límite');
     } else if (fechaLimite != null) {
       cambios['fechaLimite'] = Timestamp.fromDate(fechaLimite);
+      camposCambiados.add('fecha límite');
     }
 
     await _coleccion(uid, proyectoId).doc(id).update(cambios);
+    if (camposCambiados.isNotEmpty) {
+      await HistorialService.registrar(
+        proyectoId: proyectoId,
+        entidad: TipoEntidadHistorial.tarea,
+        accion: AccionHistorial.actualizado,
+        descripcion: 'Tarea actualizada (${camposCambiados.join(', ')})',
+      );
+    }
   }
 
   static Future<void> eliminar(String proyectoId, String id) async {

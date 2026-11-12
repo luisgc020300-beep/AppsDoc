@@ -1,6 +1,8 @@
 // test/services/documento_service_test.dart
+import 'package:appsdoc/models/accion_historial.dart';
 import 'package:appsdoc/models/categoria_documento.dart';
 import 'package:appsdoc/services/documento_service.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,11 +14,15 @@ void main() {
     db = FakeFirebaseFirestore();
     DocumentoService.debugFirestoreOverride = db;
     DocumentoService.debugUidOverride = 'uid-1';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-1';
   });
 
   tearDown(() {
     DocumentoService.debugFirestoreOverride = null;
     DocumentoService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   test('crear() guarda bajo usuarios/{uid}/proyectos/{proyectoId}/documentos y streamDocumentos() lo devuelve', () async {
@@ -79,5 +85,27 @@ void main() {
 
     expect(await DocumentoService.streamDocumentos(proyectoId).first, isEmpty);
     await expectLater(DocumentoService.crear(proyectoId: proyectoId, titulo: 'X'), throwsStateError);
+  });
+
+  test('crear() también registra un evento de creación en el historial', () async {
+    await DocumentoService.crear(proyectoId: proyectoId, titulo: 'Decisión inicial');
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+
+    expect(historial, hasLength(1));
+    expect(historial.single.accion, AccionHistorial.creado);
+    expect(historial.single.descripcion, contains('Decisión inicial'));
+  });
+
+  test('actualizar() también registra un evento de actualización en el historial', () async {
+    final id = await DocumentoService.crear(proyectoId: proyectoId, titulo: 'Original');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+
+    await DocumentoService.actualizar(proyectoId, id, categoria: CategoriaDocumento.arquitectura);
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+    expect(historial, hasLength(2), reason: 'crear() + actualizar()');
+    expect(historial.first.accion, AccionHistorial.actualizado);
+    expect(historial.first.descripcion, contains('categoría'));
   });
 }

@@ -1,5 +1,7 @@
 // test/services/idea_service_test.dart
+import 'package:appsdoc/models/accion_historial.dart';
 import 'package:appsdoc/models/estado_idea.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,11 +14,15 @@ void main() {
     db = FakeFirebaseFirestore();
     IdeaService.debugFirestoreOverride = db;
     IdeaService.debugUidOverride = 'uid-1';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-1';
   });
 
   tearDown(() {
     IdeaService.debugFirestoreOverride = null;
     IdeaService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   test('crear() guarda bajo usuarios/{uid}/proyectos/{proyectoId}/ideas y streamIdeas() lo devuelve', () async {
@@ -79,5 +85,27 @@ void main() {
 
     expect(await IdeaService.streamIdeas(proyectoId).first, isEmpty);
     await expectLater(IdeaService.crear(proyectoId: proyectoId, titulo: 'X'), throwsStateError);
+  });
+
+  test('crear() también registra un evento de creación en el historial', () async {
+    await IdeaService.crear(proyectoId: proyectoId, titulo: 'Soporte offline');
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+
+    expect(historial, hasLength(1));
+    expect(historial.single.accion, AccionHistorial.creado);
+    expect(historial.single.descripcion, contains('Soporte offline'));
+  });
+
+  test('actualizar() también registra un evento de actualización en el historial', () async {
+    final id = await IdeaService.crear(proyectoId: proyectoId, titulo: 'Original');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+
+    await IdeaService.actualizar(proyectoId, id, estado: EstadoIdea.aceptada);
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+    expect(historial, hasLength(2), reason: 'crear() + actualizar()');
+    expect(historial.first.accion, AccionHistorial.actualizado);
+    expect(historial.first.descripcion, contains('estado'));
   });
 }

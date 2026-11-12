@@ -5,8 +5,10 @@ import 'package:appsdoc/screens/funcionalidades/funcionalidad_form_screen.dart';
 import 'package:appsdoc/screens/ideas/idea_form_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyecto_detail_screen.dart';
 import 'package:appsdoc/screens/tareas/tarea_form_screen.dart';
+import 'package:appsdoc/services/auditoria_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:appsdoc/services/tarea_service.dart';
@@ -28,6 +30,10 @@ void main() {
     TareaService.debugUidOverride = 'uid-test';
     IdeaService.debugFirestoreOverride = db;
     IdeaService.debugUidOverride = 'uid-test';
+    AuditoriaService.debugFirestoreOverride = db;
+    AuditoriaService.debugUidOverride = 'uid-test';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -37,6 +43,10 @@ void main() {
     FuncionalidadService.debugUidOverride = null;
     DocumentoService.debugFirestoreOverride = null;
     DocumentoService.debugUidOverride = null;
+    AuditoriaService.debugFirestoreOverride = null;
+    AuditoriaService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
     TareaService.debugFirestoreOverride = null;
     TareaService.debugUidOverride = null;
     IdeaService.debugFirestoreOverride = null;
@@ -56,10 +66,21 @@ void main() {
     expect(find.text('Documentación'), findsOneWidget);
     expect(find.text('Tareas'), findsOneWidget);
     expect(find.text('Ideas'), findsOneWidget);
+    expect(find.text('Auditorías'), findsOneWidget);
     expect(find.text('Sin funcionalidades todavía.'), findsOneWidget);
     expect(find.text('Sin documentos todavía.'), findsOneWidget);
     expect(find.text('Sin tareas todavía.'), findsOneWidget);
     expect(find.text('Sin ideas todavía.'), findsOneWidget);
+    expect(find.text('Sin auditorías todavía.'), findsOneWidget);
+
+    // Historial es la última sección -- queda fuera del viewport por
+    // defecto del test. La pantalla es una sola lista larga de secciones
+    // (sin tabs), así que hace falta bajar para verla.
+    await tester.scrollUntilVisible(find.text('Historial'), 300);
+    expect(find.text('Historial'), findsOneWidget);
+    // El propio crear() del proyecto ya dejó un evento -- nunca está vacío.
+    expect(find.text('Sin actividad todavía.'), findsNothing);
+    expect(find.textContaining('Proyecto creado'), findsOneWidget);
   });
 
   testWidgets('añadir una funcionalidad desde la sección la hace aparecer en la lista', (tester) async {
@@ -188,5 +209,44 @@ void main() {
     expect(find.byType(TareaFormScreen), findsNothing);
     expect(find.text('Completada'), findsOneWidget);
     expect(find.text('Pendiente'), findsNothing);
+  });
+
+  testWidgets('añadir una auditoría desde la sección la hace aparecer en la lista', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(4));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Resumen'), 'Primera auditoría');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Crear auditoría'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Crear auditoría'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sin auditorías todavía.'), findsNothing);
+    // La fila de la lista no muestra el resumen, solo fecha/origen -- lo
+    // que sí confirma que se creó es que el historial recoja el evento.
+    // Historial es la última sección, fuera del viewport por defecto.
+    await tester.scrollUntilVisible(find.textContaining('Auditoría creada'), 300);
+    expect(find.textContaining('Auditoría creada'), findsOneWidget);
+  });
+
+  testWidgets('crear una tarea deja un evento en el historial, visible en esa misma pantalla', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(2));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Tarea con historial');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Crear tarea'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Crear tarea'));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.textContaining('Tarea creada: "Tarea con historial"'), 300);
+    expect(find.textContaining('Tarea creada: "Tarea con historial"'), findsOneWidget);
   });
 }

@@ -3,8 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/accion_historial.dart';
 import '../models/estado_funcionalidad.dart';
 import '../models/funcionalidad.dart';
+import '../models/tipo_entidad_historial.dart';
+import 'historial_service.dart';
 
 class FuncionalidadService {
   @visibleForTesting
@@ -52,6 +55,12 @@ class FuncionalidadService {
         updatedAt: ahora,
       ).toJson(),
     );
+    await HistorialService.registrar(
+      proyectoId: proyectoId,
+      entidad: TipoEntidadHistorial.funcionalidad,
+      accion: AccionHistorial.creado,
+      descripcion: 'Funcionalidad creada: "$nombreLimpio"',
+    );
     return ref.id;
   }
 
@@ -70,12 +79,33 @@ class FuncionalidadService {
     }
 
     final cambios = <String, dynamic>{'updatedAt': Timestamp.fromDate(DateTime.now())};
-    if (nombre != null) cambios['nombre'] = nombre.trim();
-    if (descripcion != null) cambios['descripcion'] = descripcion.trim();
-    if (estado != null) cambios['estado'] = estado.name;
-    if (notas != null) cambios['notas'] = notas.trim();
+    final camposCambiados = <String>[];
+    if (nombre != null) {
+      cambios['nombre'] = nombre.trim();
+      camposCambiados.add('nombre');
+    }
+    if (descripcion != null) {
+      cambios['descripcion'] = descripcion.trim();
+      camposCambiados.add('descripción');
+    }
+    if (estado != null) {
+      cambios['estado'] = estado.name;
+      camposCambiados.add('estado');
+    }
+    if (notas != null) {
+      cambios['notas'] = notas.trim();
+      camposCambiados.add('notas');
+    }
 
     await _coleccion(uid, proyectoId).doc(id).update(cambios);
+    if (camposCambiados.isNotEmpty) {
+      await HistorialService.registrar(
+        proyectoId: proyectoId,
+        entidad: TipoEntidadHistorial.funcionalidad,
+        accion: AccionHistorial.actualizado,
+        descripcion: 'Funcionalidad actualizada (${camposCambiados.join(', ')})',
+      );
+    }
   }
 
   static Future<void> eliminar(String proyectoId, String id) async {

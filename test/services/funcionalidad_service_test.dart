@@ -1,6 +1,8 @@
 // test/services/funcionalidad_service_test.dart
+import 'package:appsdoc/models/accion_historial.dart';
 import 'package:appsdoc/models/estado_funcionalidad.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,11 +14,15 @@ void main() {
     db = FakeFirebaseFirestore();
     FuncionalidadService.debugFirestoreOverride = db;
     FuncionalidadService.debugUidOverride = 'uid-1';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-1';
   });
 
   tearDown(() {
     FuncionalidadService.debugFirestoreOverride = null;
     FuncionalidadService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   test('crear() guarda bajo usuarios/{uid}/proyectos/{proyectoId}/funcionalidades y streamFuncionalidades() lo devuelve', () async {
@@ -75,5 +81,27 @@ void main() {
 
     expect(await FuncionalidadService.streamFuncionalidades(proyectoId).first, isEmpty);
     await expectLater(FuncionalidadService.crear(proyectoId: proyectoId, nombre: 'X'), throwsStateError);
+  });
+
+  test('crear() también registra un evento de creación en el historial', () async {
+    await FuncionalidadService.crear(proyectoId: proyectoId, nombre: 'Login');
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+
+    expect(historial, hasLength(1));
+    expect(historial.single.accion, AccionHistorial.creado);
+    expect(historial.single.descripcion, contains('Login'));
+  });
+
+  test('actualizar() también registra un evento de actualización en el historial', () async {
+    final id = await FuncionalidadService.crear(proyectoId: proyectoId, nombre: 'Original');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+
+    await FuncionalidadService.actualizar(proyectoId, id, estado: EstadoFuncionalidad.completada);
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+    expect(historial, hasLength(2), reason: 'crear() + actualizar()');
+    expect(historial.first.accion, AccionHistorial.actualizado);
+    expect(historial.first.descripcion, contains('estado'));
   });
 }

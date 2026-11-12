@@ -2,6 +2,7 @@
 import 'package:appsdoc/models/categoria_documento.dart';
 import 'package:appsdoc/screens/documentacion/documento_form_screen.dart';
 import 'package:appsdoc/services/documento_service.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -9,13 +10,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   setUp(() {
-    DocumentoService.debugFirestoreOverride = FakeFirebaseFirestore();
+    final db = FakeFirebaseFirestore();
+    DocumentoService.debugFirestoreOverride = db;
     DocumentoService.debugUidOverride = 'uid-test';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
     DocumentoService.debugFirestoreOverride = null;
     DocumentoService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);

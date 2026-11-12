@@ -2,8 +2,10 @@
 import 'package:appsdoc/screens/proyectos/proyecto_detail_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyecto_form_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyectos_list_screen.dart';
+import 'package:appsdoc/services/auditoria_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:appsdoc/services/tarea_service.dart';
@@ -25,6 +27,10 @@ void main() {
     TareaService.debugUidOverride = 'uid-test';
     IdeaService.debugFirestoreOverride = db;
     IdeaService.debugUidOverride = 'uid-test';
+    AuditoriaService.debugFirestoreOverride = db;
+    AuditoriaService.debugUidOverride = 'uid-test';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -38,6 +44,10 @@ void main() {
     TareaService.debugUidOverride = null;
     IdeaService.debugFirestoreOverride = null;
     IdeaService.debugUidOverride = null;
+    AuditoriaService.debugFirestoreOverride = null;
+    AuditoriaService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);

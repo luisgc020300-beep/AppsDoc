@@ -1,5 +1,7 @@
 // test/services/proyecto_service_test.dart
+import 'package:appsdoc/models/accion_historial.dart';
 import 'package:appsdoc/models/estado_proyecto.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,11 +13,15 @@ void main() {
     db = FakeFirebaseFirestore();
     ProyectoService.debugFirestoreOverride = db;
     ProyectoService.debugUidOverride = 'uid-1';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-1';
   });
 
   tearDown(() {
     ProyectoService.debugFirestoreOverride = null;
     ProyectoService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   test('crear() guarda el proyecto bajo usuarios/{uid}/proyectos y streamProyectos() lo devuelve', () async {
@@ -126,5 +132,36 @@ void main() {
     ProyectoService.debugUidOverride = null;
 
     expect(await ProyectoService.streamProyecto('cualquiera').first, isNull);
+  });
+
+  test('crear() también registra un evento de creación en el historial', () async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    final historial = await HistorialService.streamHistorial(id).first;
+
+    expect(historial, hasLength(1));
+    expect(historial.single.accion, AccionHistorial.creado);
+    expect(historial.single.descripcion, contains('REPARA'));
+  });
+
+  test('actualizar() también registra un evento de actualización en el historial, listando los campos cambiados', () async {
+    final id = await ProyectoService.crear(nombre: 'Original');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+
+    await ProyectoService.actualizar(id, estado: EstadoProyecto.lanzado);
+
+    final historial = await HistorialService.streamHistorial(id).first;
+    expect(historial, hasLength(2), reason: 'crear() + actualizar()');
+    expect(historial.first.accion, AccionHistorial.actualizado);
+    expect(historial.first.descripcion, contains('estado'));
+  });
+
+  test('actualizar() sin ningún campo no registra un evento nuevo en el historial', () async {
+    final id = await ProyectoService.crear(nombre: 'Original');
+
+    await ProyectoService.actualizar(id);
+
+    final historial = await HistorialService.streamHistorial(id).first;
+    expect(historial, hasLength(1), reason: 'solo el de crear()');
   });
 }

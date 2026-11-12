@@ -1,20 +1,23 @@
 // lib/screens/proyectos/proyecto_detail_screen.dart
 //
 // Secciones, no tabs (ver arquitectura aprobada): Resumen arriba, luego
-// Funcionalidades, Documentación, Tareas e Ideas como bloques en la misma
-// pantalla. Auditorías/Historial/Progreso/GitHub/IA llegan en fases
+// Funcionalidades, Documentación, Tareas, Ideas, Auditorías e Historial
+// como bloques en la misma pantalla. Progreso/GitHub/IA llegan en fases
 // posteriores.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../controllers/proyecto_detail_controller.dart';
+import '../../models/auditoria.dart';
 import '../../models/documento.dart';
 import '../../models/estado_tarea.dart';
+import '../../models/evento_historial.dart';
 import '../../models/funcionalidad.dart';
 import '../../models/idea.dart';
 import '../../models/tarea.dart';
 import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
+import '../auditorias/auditoria_form_screen.dart';
 import '../documentacion/documento_form_screen.dart';
 import '../funcionalidades/funcionalidad_form_screen.dart';
 import '../ideas/idea_form_screen.dart';
@@ -112,6 +115,10 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
         _SeccionTareas(proyectoId: widget.proyectoId, tareas: _controller.tareas),
         const SizedBox(height: 20),
         _SeccionIdeas(proyectoId: widget.proyectoId, ideas: _controller.ideas),
+        const SizedBox(height: 20),
+        _SeccionAuditorias(proyectoId: widget.proyectoId, auditorias: _controller.auditorias),
+        const SizedBox(height: 20),
+        _SeccionHistorial(historial: _controller.historial),
       ],
     );
   }
@@ -334,6 +341,102 @@ class _SeccionIdeas extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId, ideaExistente: i)),
                 ),
               ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SeccionAuditorias extends StatelessWidget {
+  const _SeccionAuditorias({required this.proyectoId, required this.auditorias});
+
+  final String proyectoId;
+  final List<Auditoria>? auditorias;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text('Auditorías', style: Theme.of(context).textTheme.titleMedium)),
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: 'Añadir auditoría',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AuditoriaFormScreen(proyectoId: proyectoId))),
+            ),
+          ],
+        ),
+        if (auditorias == null)
+          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+        else if (auditorias!.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('Sin auditorías todavía.', style: TextStyle(color: colors.textMuted)),
+          )
+        else
+          ...auditorias!.map(
+            (a) => Card(
+              child: ListTile(
+                leading: Icon(a.resultado.icono, color: a.resultado.color),
+                title: Text(DateFormat('dd/MM/yyyy').format(a.fecha)),
+                subtitle: Row(
+                  children: [
+                    Icon(a.origen.icono, size: 14, color: a.origen.color),
+                    const SizedBox(width: 4),
+                    Text(a.origen.etiqueta, style: TextStyle(color: a.origen.color)),
+                    if (a.hallazgosAbiertos > 0) ...[
+                      const SizedBox(width: 10),
+                      Icon(Icons.flag_outlined, size: 14, color: colors.danger),
+                      const SizedBox(width: 4),
+                      Text('${a.hallazgosAbiertos} abiertos', style: TextStyle(color: colors.danger, fontSize: 12)),
+                    ],
+                  ],
+                ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => AuditoriaFormScreen(proyectoId: proyectoId, auditoriaExistente: a)),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SeccionHistorial extends StatelessWidget {
+  const _SeccionHistorial({required this.historial});
+
+  final List<EventoHistorial>? historial;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Historial', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 4),
+        // Solo lectura -- lo generan el resto de servicios automáticamente,
+        // nunca se añade ni se edita a mano.
+        if (historial == null)
+          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+        else if (historial!.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('Sin actividad todavía.', style: TextStyle(color: colors.textMuted)),
+          )
+        else
+          ...historial!.map(
+            (e) => ListTile(
+              dense: true,
+              leading: Icon(e.entidad.icono, color: colors.textMuted, size: 20),
+              title: Text(e.descripcion),
+              subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(e.fecha)),
             ),
           ),
       ],

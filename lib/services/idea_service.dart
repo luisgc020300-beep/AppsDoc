@@ -3,8 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/accion_historial.dart';
 import '../models/estado_idea.dart';
 import '../models/idea.dart';
+import '../models/tipo_entidad_historial.dart';
+import 'historial_service.dart';
 
 class IdeaService {
   @visibleForTesting
@@ -52,6 +55,12 @@ class IdeaService {
         updatedAt: ahora,
       ).toJson(),
     );
+    await HistorialService.registrar(
+      proyectoId: proyectoId,
+      entidad: TipoEntidadHistorial.idea,
+      accion: AccionHistorial.creado,
+      descripcion: 'Idea creada: "$tituloLimpio"',
+    );
     return ref.id;
   }
 
@@ -70,12 +79,33 @@ class IdeaService {
     }
 
     final cambios = <String, dynamic>{'updatedAt': Timestamp.fromDate(DateTime.now())};
-    if (titulo != null) cambios['titulo'] = titulo.trim();
-    if (descripcion != null) cambios['descripcion'] = descripcion.trim();
-    if (notas != null) cambios['notas'] = notas.trim();
-    if (estado != null) cambios['estado'] = estado.name;
+    final camposCambiados = <String>[];
+    if (titulo != null) {
+      cambios['titulo'] = titulo.trim();
+      camposCambiados.add('título');
+    }
+    if (descripcion != null) {
+      cambios['descripcion'] = descripcion.trim();
+      camposCambiados.add('descripción');
+    }
+    if (notas != null) {
+      cambios['notas'] = notas.trim();
+      camposCambiados.add('notas');
+    }
+    if (estado != null) {
+      cambios['estado'] = estado.name;
+      camposCambiados.add('estado');
+    }
 
     await _coleccion(uid, proyectoId).doc(id).update(cambios);
+    if (camposCambiados.isNotEmpty) {
+      await HistorialService.registrar(
+        proyectoId: proyectoId,
+        entidad: TipoEntidadHistorial.idea,
+        accion: AccionHistorial.actualizado,
+        descripcion: 'Idea actualizada (${camposCambiados.join(', ')})',
+      );
+    }
   }
 
   static Future<void> eliminar(String proyectoId, String id) async {

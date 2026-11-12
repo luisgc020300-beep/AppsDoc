@@ -1,6 +1,8 @@
 // test/services/tarea_service_test.dart
+import 'package:appsdoc/models/accion_historial.dart';
 import 'package:appsdoc/models/estado_tarea.dart';
 import 'package:appsdoc/models/prioridad_tarea.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/tarea_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,11 +15,15 @@ void main() {
     db = FakeFirebaseFirestore();
     TareaService.debugFirestoreOverride = db;
     TareaService.debugUidOverride = 'uid-1';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-1';
   });
 
   tearDown(() {
     TareaService.debugFirestoreOverride = null;
     TareaService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   test('crear() guarda bajo usuarios/{uid}/proyectos/{proyectoId}/tareas y streamTareas() lo devuelve', () async {
@@ -108,5 +114,27 @@ void main() {
 
     expect(await TareaService.streamTareas(proyectoId).first, isEmpty);
     await expectLater(TareaService.crear(proyectoId: proyectoId, titulo: 'X'), throwsStateError);
+  });
+
+  test('crear() también registra un evento de creación en el historial', () async {
+    await TareaService.crear(proyectoId: proyectoId, titulo: 'Escribir tests');
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+
+    expect(historial, hasLength(1));
+    expect(historial.single.accion, AccionHistorial.creado);
+    expect(historial.single.descripcion, contains('Escribir tests'));
+  });
+
+  test('actualizar() también registra un evento de actualización en el historial', () async {
+    final id = await TareaService.crear(proyectoId: proyectoId, titulo: 'Original');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+
+    await TareaService.actualizar(proyectoId, id, estado: EstadoTarea.completada);
+
+    final historial = await HistorialService.streamHistorial(proyectoId).first;
+    expect(historial, hasLength(2), reason: 'crear() + actualizar()');
+    expect(historial.first.accion, AccionHistorial.actualizado);
+    expect(historial.first.descripcion, contains('estado'));
   });
 }

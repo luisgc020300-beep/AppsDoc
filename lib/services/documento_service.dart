@@ -3,8 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/accion_historial.dart';
 import '../models/categoria_documento.dart';
 import '../models/documento.dart';
+import '../models/tipo_entidad_historial.dart';
+import 'historial_service.dart';
 
 class DocumentoService {
   @visibleForTesting
@@ -50,6 +53,12 @@ class DocumentoService {
         updatedAt: ahora,
       ).toJson(),
     );
+    await HistorialService.registrar(
+      proyectoId: proyectoId,
+      entidad: TipoEntidadHistorial.documento,
+      accion: AccionHistorial.creado,
+      descripcion: 'Documento creado: "$tituloLimpio"',
+    );
     return ref.id;
   }
 
@@ -67,11 +76,29 @@ class DocumentoService {
     }
 
     final cambios = <String, dynamic>{'updatedAt': Timestamp.fromDate(DateTime.now())};
-    if (titulo != null) cambios['titulo'] = titulo.trim();
-    if (categoria != null) cambios['categoria'] = categoria.name;
-    if (contenido != null) cambios['contenido'] = contenido.trim();
+    final camposCambiados = <String>[];
+    if (titulo != null) {
+      cambios['titulo'] = titulo.trim();
+      camposCambiados.add('título');
+    }
+    if (categoria != null) {
+      cambios['categoria'] = categoria.name;
+      camposCambiados.add('categoría');
+    }
+    if (contenido != null) {
+      cambios['contenido'] = contenido.trim();
+      camposCambiados.add('contenido');
+    }
 
     await _coleccion(uid, proyectoId).doc(id).update(cambios);
+    if (camposCambiados.isNotEmpty) {
+      await HistorialService.registrar(
+        proyectoId: proyectoId,
+        entidad: TipoEntidadHistorial.documento,
+        accion: AccionHistorial.actualizado,
+        descripcion: 'Documento actualizado (${camposCambiados.join(', ')})',
+      );
+    }
   }
 
   static Future<void> eliminar(String proyectoId, String id) async {

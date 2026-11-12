@@ -1,6 +1,7 @@
 // test/screens/idea_form_screen_test.dart
 import 'package:appsdoc/models/estado_idea.dart';
 import 'package:appsdoc/screens/ideas/idea_form_screen.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
@@ -9,13 +10,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   setUp(() {
-    IdeaService.debugFirestoreOverride = FakeFirebaseFirestore();
+    final db = FakeFirebaseFirestore();
+    IdeaService.debugFirestoreOverride = db;
     IdeaService.debugUidOverride = 'uid-test';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
     IdeaService.debugFirestoreOverride = null;
     IdeaService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);

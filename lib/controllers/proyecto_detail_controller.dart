@@ -3,21 +3,26 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../models/auditoria.dart';
 import '../models/documento.dart';
+import '../models/evento_historial.dart';
 import '../models/funcionalidad.dart';
 import '../models/idea.dart';
 import '../models/proyecto.dart';
 import '../models/tarea.dart';
+import '../services/auditoria_service.dart';
 import '../services/documento_service.dart';
 import '../services/funcionalidad_service.dart';
+import '../services/historial_service.dart';
 import '../services/idea_service.dart';
 import '../services/proyecto_service.dart';
 import '../services/tarea_service.dart';
 
-/// Combina las cinco fuentes que necesita el detalle de un proyecto
-/// (ficha, funcionalidades, documentos, tareas, ideas) en un único
-/// ChangeNotifier. Los cinco streams son inyectables para poder testear
-/// cada combinación de estados sin tocar Firestore real.
+/// Combina las siete fuentes que necesita el detalle de un proyecto
+/// (ficha, funcionalidades, documentos, tareas, ideas, auditorías,
+/// historial) en un único ChangeNotifier. Los siete streams son
+/// inyectables para poder testear cada combinación de estados sin tocar
+/// Firestore real.
 class ProyectoDetailController extends ChangeNotifier {
   ProyectoDetailController({
     required this.proyectoId,
@@ -26,6 +31,8 @@ class ProyectoDetailController extends ChangeNotifier {
     Stream<List<Documento>>? documentosStream,
     Stream<List<Tarea>>? tareasStream,
     Stream<List<Idea>>? ideasStream,
+    Stream<List<Auditoria>>? auditoriasStream,
+    Stream<List<EventoHistorial>>? historialStream,
   }) {
     _subProyecto = (proyectoStream ?? ProyectoService.streamProyecto(proyectoId)).listen(
       (p) {
@@ -79,6 +86,26 @@ class ProyectoDetailController extends ChangeNotifier {
         notifyListeners();
       },
     );
+    _subAuditorias = (auditoriasStream ?? AuditoriaService.streamAuditorias(proyectoId)).listen(
+      (a) {
+        auditorias = a;
+        notifyListeners();
+      },
+      onError: (Object e) {
+        error = e;
+        notifyListeners();
+      },
+    );
+    _subHistorial = (historialStream ?? HistorialService.streamHistorial(proyectoId)).listen(
+      (h) {
+        historial = h;
+        notifyListeners();
+      },
+      onError: (Object e) {
+        error = e;
+        notifyListeners();
+      },
+    );
   }
 
   final String proyectoId;
@@ -87,6 +114,8 @@ class ProyectoDetailController extends ChangeNotifier {
   late final StreamSubscription<List<Documento>> _subDocumentos;
   late final StreamSubscription<List<Tarea>> _subTareas;
   late final StreamSubscription<List<Idea>> _subIdeas;
+  late final StreamSubscription<List<Auditoria>> _subAuditorias;
+  late final StreamSubscription<List<EventoHistorial>> _subHistorial;
 
   Proyecto? proyecto;
   bool proyectoCargando = true;
@@ -94,6 +123,8 @@ class ProyectoDetailController extends ChangeNotifier {
   List<Documento>? documentos;
   List<Tarea>? tareas;
   List<Idea>? ideas;
+  List<Auditoria>? auditorias;
+  List<EventoHistorial>? historial;
   Object? error;
 
   @override
@@ -103,6 +134,8 @@ class ProyectoDetailController extends ChangeNotifier {
     unawaited(_subDocumentos.cancel());
     unawaited(_subTareas.cancel());
     unawaited(_subIdeas.cancel());
+    unawaited(_subAuditorias.cancel());
+    unawaited(_subHistorial.cancel());
     super.dispose();
   }
 }

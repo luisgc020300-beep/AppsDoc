@@ -3,8 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/accion_historial.dart';
 import '../models/estado_proyecto.dart';
 import '../models/proyecto.dart';
+import '../models/tipo_entidad_historial.dart';
+import 'historial_service.dart';
 
 class ProyectoService {
   /// Seams de solo test -- nunca se asignan en código de producción. Mismo
@@ -58,6 +61,12 @@ class ProyectoService {
         updatedAt: ahora,
       ).toJson(),
     );
+    await HistorialService.registrar(
+      proyectoId: ref.id,
+      entidad: TipoEntidadHistorial.proyecto,
+      accion: AccionHistorial.creado,
+      descripcion: 'Proyecto creado: "$nombreLimpio"',
+    );
     return ref.id;
   }
 
@@ -69,11 +78,29 @@ class ProyectoService {
     }
 
     final cambios = <String, dynamic>{'updatedAt': Timestamp.fromDate(DateTime.now())};
-    if (nombre != null) cambios['nombre'] = nombre.trim();
-    if (descripcion != null) cambios['descripcion'] = descripcion.trim();
-    if (estado != null) cambios['estado'] = estado.name;
+    final camposCambiados = <String>[];
+    if (nombre != null) {
+      cambios['nombre'] = nombre.trim();
+      camposCambiados.add('nombre');
+    }
+    if (descripcion != null) {
+      cambios['descripcion'] = descripcion.trim();
+      camposCambiados.add('descripción');
+    }
+    if (estado != null) {
+      cambios['estado'] = estado.name;
+      camposCambiados.add('estado');
+    }
 
     await _coleccion(uid).doc(id).update(cambios);
+    if (camposCambiados.isNotEmpty) {
+      await HistorialService.registrar(
+        proyectoId: id,
+        entidad: TipoEntidadHistorial.proyecto,
+        accion: AccionHistorial.actualizado,
+        descripcion: 'Proyecto actualizado (${camposCambiados.join(', ')})',
+      );
+    }
   }
 
   static Future<void> eliminar(String id) async {

@@ -1,6 +1,7 @@
 // test/screens/proyecto_form_screen_test.dart
 import 'package:appsdoc/models/estado_proyecto.dart';
 import 'package:appsdoc/screens/proyectos/proyecto_form_screen.dart';
+import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
@@ -9,13 +10,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   setUp(() {
-    ProyectoService.debugFirestoreOverride = FakeFirebaseFirestore();
+    final db = FakeFirebaseFirestore();
+    ProyectoService.debugFirestoreOverride = db;
     ProyectoService.debugUidOverride = 'uid-test';
+    HistorialService.debugFirestoreOverride = db;
+    HistorialService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
     ProyectoService.debugFirestoreOverride = null;
     ProyectoService.debugUidOverride = null;
+    HistorialService.debugFirestoreOverride = null;
+    HistorialService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);
