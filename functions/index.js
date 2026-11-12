@@ -22,6 +22,8 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
+const tar = require('tar-stream');
+const zlib = require('zlib');
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
@@ -427,9 +429,608 @@ exports.extraerAuditoria = onCall({ region: REGION, secrets: [_anthropicKey] }, 
   return _parsearPropuestaExtraida(data.content);
 });
 
+// =============================================================================
+// Fase 9: análisis inteligente y automático de repositorios GitHub.
+//
+// Lee el repositorio completo (solo lectura, vía el tarball público de
+// GitHub -- un único fetch, sin token, sin recorrer archivo a archivo por
+// la API de Contents y agotar el límite de 60 peticiones/hora sin
+// autenticar) y pide a Anthropic que lo audite: arquitectura, tecnologías,
+// documentación, funcionalidades detectadas (con evidencia y confianza),
+// hallazgos, tareas e ideas. Como extraerAuditoria, SOLO propone --
+// nada se guarda aquí; el cliente confirma y persiste con los servicios
+// ya existentes.
+// =============================================================================
+
+const MAX_TARBALL_BYTES = 30 * 1024 * 1024; // 30 MB
+const MAX_ARCHIVOS_CONTENIDO = 80;
+const MAX_CHARS_POR_ARCHIVO = 20000;
+const PRESUPUESTO_CHARS_TOTAL = 180000;
+const MAX_RUTAS_ARBOL = 3000;
+
+// Directorios que nunca aportan señal real para auditar o documentar un
+// proyecto (dependencias instaladas, builds, control de versiones...).
+const DIRECTORIOS_IRRELEVANTES = [
+  'node_modules/',
+  '.git/',
+  'build/',
+  'dist/',
+  '.dart_tool/',
+  'pods/',
+  '.gradle/',
+  'coverage/',
+  '.idea/',
+  '.vscode/',
+  'vendor/',
+  '__pycache__/',
+  '.venv/',
+  'venv/',
+  'deriveddata/',
+  '.next/',
+  'target/',
+  'out/',
+  '.pub-cache/',
+];
+
+const EXTENSIONES_IRRELEVANTES = [
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+  '.ico',
+  '.svg',
+  '.icns',
+  '.ttf',
+  '.otf',
+  '.woff',
+  '.woff2',
+  '.eot',
+  '.mp3',
+  '.mp4',
+  '.mov',
+  '.avi',
+  '.wav',
+  '.ogg',
+  '.zip',
+  '.tar',
+  '.gz',
+  '.rar',
+  '.7z',
+  '.jar',
+  '.aar',
+  '.apk',
+  '.ipa',
+  '.aab',
+  '.lock',
+  '.pdf',
+  '.exe',
+  '.dll',
+  '.so',
+  '.dylib',
+  '.class',
+  '.o',
+  '.a',
+  '.keystore',
+  '.jks',
+  '.p12',
+  '.pem',
+  '.mobileprovision',
+];
+
+// Nunca se envían a la IA, aunque no estén en el denylist de extensiones --
+// "No enviar secretos, archivos sensibles... al proveedor de IA", pedido
+// explícito de esta fase.
+const NOMBRES_IRRELEVANTES = ['package-lock.json', 'pubspec.lock', 'yarn.lock', 'composer.lock', 'gemfile.lock'];
+const NOMBRES_SENSIBLES = [
+  '.env',
+  'google-services.json',
+  'googleservice-info.plist',
+  'firebase_options.dart',
+  'id_rsa',
+  'id_ed25519',
+  '.pgpass',
+  '.npmrc',
+  'credentials.json',
+];
+const PATRON_NOMBRE_SENSIBLE = /secret|credential|password|service-account|\.key$/i;
+
+function _esArchivoIrrelevante(ruta) {
+  const rutaNormalizada = ruta.toLowerCase();
+  if (DIRECTORIOS_IRRELEVANTES.some((d) => rutaNormalizada === d.slice(0, -1) || rutaNormalizada.startsWith(d) || rutaNormalizada.includes(`/${d}`))) {
+    return true;
+  }
+  if (EXTENSIONES_IRRELEVANTES.some((ext) => rutaNormalizada.endsWith(ext))) return true;
+  const nombreArchivo = rutaNormalizada.split('/').pop() || '';
+  if (NOMBRES_IRRELEVANTES.includes(nombreArchivo)) return true;
+  if (NOMBRES_SENSIBLES.some((n) => nombreArchivo === n || nombreArchivo.startsWith(`${n}.`))) return true;
+  if (PATRON_NOMBRE_SENSIBLE.test(nombreArchivo)) return true;
+  return false;
+}
+
+const ARCHIVOS_ANCLA = [
+  'readme.md',
+  'readme',
+  'pubspec.yaml',
+  'package.json',
+  'analysis_options.yaml',
+  'firebase.json',
+  'claude.md',
+  'app.json',
+  'build.gradle',
+  'podfile',
+];
+
+function _esArchivoAncla(ruta) {
+  const nombre = ruta.toLowerCase().split('/').pop() || '';
+  const profundidad = ruta.split('/').length - 1;
+  // Solo cuentan como "ancla" a poca profundidad -- un README anidado en
+  // una carpeta de ejemplos de tercer nivel no debería desplazar a los
+  // archivos de configuración reales del proyecto.
+  return profundidad <= 1 && ARCHIVOS_ANCLA.some((a) => nombre === a || nombre.startsWith(`${a}.`));
+}
+
+/// Pura: ordena (anclas primero) y recorta a maxArchivos. No decide
+/// contenido ni tamaño, solo QUÉ rutas intentar leer y en qué orden.
+function _priorizarArchivos(rutas, maxArchivos) {
+  const anclas = rutas.filter(_esArchivoAncla);
+  const resto = rutas.filter((r) => !_esArchivoAncla(r));
+  return [...anclas, ...resto].slice(0, maxArchivos);
+}
+
+/// Los tarballs de GitHub anteponen un prefijo "{owner}-{repo}-{sha}/" a
+/// cada ruta -- esta es la ruta "lógica" relativa a la raíz del repo, la
+/// que de verdad interesa mostrarle a la IA y comparar contra denylists.
+function _rutaLogica(nombreEnTar) {
+  const idx = nombreEnTar.indexOf('/');
+  return idx === -1 ? '' : nombreEnTar.slice(idx + 1);
+}
+
+function _descomprimirTar(buffer) {
+  return zlib.gunzipSync(buffer);
+}
+
+/// Primera pasada sobre el tarball (ya en memoria, sin red adicional):
+/// solo cabeceras -- construye el árbol de rutas sin cargar contenido.
+function _listarEntradasTar(buffer) {
+  return new Promise((resolve, reject) => {
+    const entradas = [];
+    const extract = tar.extract();
+    extract.on('entry', (header, stream, next) => {
+      const ruta = _rutaLogica(header.name);
+      if (header.type === 'file' && ruta && entradas.length < MAX_RUTAS_ARBOL) {
+        entradas.push({ path: ruta, size: header.size });
+      }
+      stream.resume();
+      stream.on('end', next);
+    });
+    extract.on('finish', () => resolve(entradas));
+    extract.on('error', reject);
+    try {
+      extract.end(_descomprimirTar(buffer));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+/// Segunda pasada sobre el MISMO buffer (no se vuelve a descargar nada):
+/// esta vez sí carga contenido, pero solo de `rutasAIncluir`, y solo
+/// hasta agotar `presupuestoChars` en total -- el resto se salta.
+function _extraerContenidoTar(buffer, rutasAIncluir, presupuestoChars) {
+  const conjunto = new Set(rutasAIncluir);
+  return new Promise((resolve, reject) => {
+    const contenidos = new Map();
+    let acumulado = 0;
+    const extract = tar.extract();
+    extract.on('entry', (header, stream, next) => {
+      const ruta = _rutaLogica(header.name);
+      if (header.type === 'file' && ruta && conjunto.has(ruta) && acumulado < presupuestoChars) {
+        const partes = [];
+        stream.on('data', (chunk) => partes.push(chunk));
+        stream.on('end', () => {
+          let texto = Buffer.concat(partes).toString('utf8');
+          if (texto.length > MAX_CHARS_POR_ARCHIVO) {
+            texto = `${texto.slice(0, MAX_CHARS_POR_ARCHIVO)}\n… (truncado)`;
+          }
+          contenidos.set(ruta, texto);
+          acumulado += texto.length;
+          next();
+        });
+      } else {
+        stream.resume();
+        stream.on('end', next);
+      }
+    });
+    extract.on('finish', () => resolve(contenidos));
+    extract.on('error', reject);
+    try {
+      extract.end(_descomprimirTar(buffer));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function _leerCuerpoConLimite(res, maxBytes) {
+  const reader = res.body.getReader();
+  const trozos = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new HttpsError('resource-exhausted', 'El repositorio es demasiado grande para analizarlo de una vez.');
+    }
+    trozos.push(Buffer.from(value));
+  }
+  return Buffer.concat(trozos);
+}
+
+async function _obtenerJsonGithub(ruta) {
+  let res;
+  try {
+    res = await fetch(`https://api.github.com${ruta}`, { headers: { Accept: 'application/vnd.github+json' } });
+  } catch (e) {
+    throw new HttpsError('unavailable', 'No se pudo conectar con GitHub.');
+  }
+  if (res.status === 404) throw new HttpsError('not-found', 'No se pudo leer el repositorio: no existe o es privado.');
+  if (res.status === 403) {
+    if (res.headers.get('x-ratelimit-remaining') === '0') {
+      throw new HttpsError('resource-exhausted', 'Límite de peticiones a GitHub alcanzado. Inténtalo más tarde.');
+    }
+    throw new HttpsError('internal', 'GitHub rechazó la petición (403).');
+  }
+  if (!res.ok) throw new HttpsError('internal', `GitHub devolvió un error inesperado (${res.status}).`);
+  return res.json();
+}
+
+async function _obtenerRamaYCommit(propietario, nombre) {
+  const repoJson = await _obtenerJsonGithub(`/repos/${propietario}/${nombre}`);
+  const rama = repoJson.default_branch || 'main';
+  let sha = null;
+  try {
+    const commitJson = await _obtenerJsonGithub(`/repos/${propietario}/${nombre}/commits/${rama}`);
+    sha = commitJson.sha || null;
+  } catch (e) {
+    // El sha solo sirve para preparar comparaciones incrementales futuras
+    // (ver arquitectura aprobada) -- si esta llamada concreta falla, el
+    // análisis sigue adelante igual, simplemente sin esa referencia.
+    sha = null;
+  }
+  return { rama, sha };
+}
+
+async function _descargarTarball(propietario, nombre, rama) {
+  let res;
+  try {
+    res = await fetch(`https://api.github.com/repos/${propietario}/${nombre}/tarball/${encodeURIComponent(rama)}`, {
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+  } catch (e) {
+    throw new HttpsError('unavailable', 'No se pudo descargar el repositorio desde GitHub.');
+  }
+  if (res.status === 404) throw new HttpsError('not-found', 'No se pudo leer el repositorio: no existe o es privado.');
+  if (res.status === 403) {
+    if (res.headers.get('x-ratelimit-remaining') === '0') {
+      throw new HttpsError('resource-exhausted', 'Límite de peticiones a GitHub alcanzado. Inténtalo más tarde.');
+    }
+    throw new HttpsError('internal', 'GitHub rechazó la petición (403).');
+  }
+  if (!res.ok) throw new HttpsError('internal', `GitHub devolvió un error inesperado (${res.status}) al descargar el repositorio.`);
+  return _leerCuerpoConLimite(res, MAX_TARBALL_BYTES);
+}
+
+/// Pura: arma el prompt a partir de datos ya reunidos (árbol, contenido,
+/// lo ya registrado en AppsDoc, el análisis anterior si lo hay) -- sin
+/// tocar Firestore ni GitHub.
+function _construirPromptAnalisis({
+  proyecto,
+  rutasArbol,
+  archivosConContenido,
+  funcionalidadesExistentes,
+  documentosExistentes,
+  tareasExistentes,
+  analisisAnterior,
+}) {
+  const lineas = [];
+  lineas.push(`Repositorio del proyecto "${proyecto.nombre}".`);
+
+  lineas.push('', '## Árbol de archivos (solo rutas, sin contenido)');
+  lineas.push(rutasArbol.length ? rutasArbol.map((r) => `- ${r}`).join('\n') : '(vacío)');
+
+  lineas.push('', '## Contenido de los archivos más relevantes');
+  if (archivosConContenido.size) {
+    for (const [ruta, contenido] of archivosConContenido) {
+      lineas.push(`\n--- ${ruta} ---\n${contenido}`);
+    }
+  } else {
+    lineas.push('(no se pudo leer el contenido de ningún archivo)');
+  }
+
+  lineas.push('', '## Funcionalidades ya registradas en AppsDoc -- no las repitas');
+  lineas.push(funcionalidadesExistentes.length ? funcionalidadesExistentes.map((n) => `- ${n}`).join('\n') : '(ninguna)');
+
+  lineas.push('', '## Documentos ya registrados en AppsDoc -- no los repitas');
+  lineas.push(documentosExistentes.length ? documentosExistentes.map((n) => `- ${n}`).join('\n') : '(ninguno)');
+
+  lineas.push('', '## Tareas ya registradas en AppsDoc -- no las repitas');
+  lineas.push(tareasExistentes.length ? tareasExistentes.map((n) => `- ${n}`).join('\n') : '(ninguna)');
+
+  if (analisisAnterior) {
+    lineas.push('', '## Análisis automático anterior de este mismo repositorio (para comparar qué ha cambiado)');
+    lineas.push(analisisAnterior);
+  }
+
+  return lineas.join('\n');
+}
+
+const ESTADOS_FUNCIONALIDAD_VALIDOS = ['planificada', 'enProgreso', 'completada', 'descartada'];
+const CATEGORIAS_DOCUMENTO_VALIDAS = ['arquitectura', 'decision', 'nota'];
+const CONFIANZAS_VALIDAS = ['alta', 'media', 'baja'];
+
+function _normalizarTitulo(t) {
+  return (t || '').trim().toLowerCase();
+}
+
+/// Pura: parsea la respuesta de Anthropic Y descarta cualquier
+/// funcionalidad/documento/tarea propuesto que ya exista (comparación
+/// case-insensitive por título/nombre) -- la instrucción al modelo para
+/// que no los repita es la primera barrera, esta es la segunda,
+/// determinista, que no depende de que el modelo la respete.
+function _parsearAnalisisRepositorio(
+  contentBlocks,
+  { funcionalidadesExistentes = [], documentosExistentes = [], tareasExistentes = [] } = {},
+) {
+  const bloque = (contentBlocks || []).find((b) => b.type === 'tool_use' && b.name === 'registrar_analisis_repositorio');
+  if (!bloque || typeof bloque.input !== 'object' || bloque.input === null) {
+    throw new HttpsError('internal', 'La IA no devolvió un análisis válido.');
+  }
+  const input = bloque.input;
+  const resumen = typeof input.resumen === 'string' ? input.resumen.trim() : '';
+  if (!resumen) throw new HttpsError('internal', 'La IA no devolvió un resumen.');
+
+  const existentesFunc = new Set(funcionalidadesExistentes.map(_normalizarTitulo));
+  const existentesDoc = new Set(documentosExistentes.map(_normalizarTitulo));
+  const existentesTarea = new Set(tareasExistentes.map(_normalizarTitulo));
+
+  const arquitecturaDetectada = typeof input.arquitecturaDetectada === 'string' ? input.arquitecturaDetectada.trim() : '';
+  const tecnologias = Array.isArray(input.tecnologias)
+    ? input.tecnologias.filter((t) => typeof t === 'string' && t.trim() !== '').map((t) => t.trim())
+    : [];
+
+  const documentos = Array.isArray(input.documentos)
+    ? input.documentos
+        .filter((d) => d && typeof d.titulo === 'string' && d.titulo.trim() !== '' && !existentesDoc.has(_normalizarTitulo(d.titulo)))
+        .map((d) => ({
+          titulo: d.titulo.trim(),
+          categoria: CATEGORIAS_DOCUMENTO_VALIDAS.includes(d.categoria) ? d.categoria : 'nota',
+          contenido: typeof d.contenido === 'string' ? d.contenido.trim() : '',
+        }))
+    : [];
+
+  const funcionalidades = Array.isArray(input.funcionalidades)
+    ? input.funcionalidades
+        .filter((f) => f && typeof f.nombre === 'string' && f.nombre.trim() !== '' && !existentesFunc.has(_normalizarTitulo(f.nombre)))
+        .map((f) => ({
+          nombre: f.nombre.trim(),
+          descripcion: typeof f.descripcion === 'string' ? f.descripcion.trim() : '',
+          estadoSugerido: ESTADOS_FUNCIONALIDAD_VALIDOS.includes(f.estadoSugerido) ? f.estadoSugerido : 'planificada',
+          confianza: CONFIANZAS_VALIDAS.includes(f.confianza) ? f.confianza : 'baja',
+          evidencia: typeof f.evidencia === 'string' ? f.evidencia.trim() : '',
+        }))
+    : [];
+
+  const hallazgos = Array.isArray(input.hallazgos)
+    ? input.hallazgos
+        .filter((h) => h && typeof h.titulo === 'string' && h.titulo.trim() !== '')
+        .map((h) => ({
+          titulo: h.titulo.trim(),
+          descripcion: typeof h.descripcion === 'string' ? h.descripcion.trim() : '',
+          gravedad: GRAVEDADES_VALIDAS.includes(h.gravedad) ? h.gravedad : 'media',
+        }))
+    : [];
+
+  const tareas = Array.isArray(input.tareas)
+    ? input.tareas
+        .filter((t) => t && typeof t.titulo === 'string' && t.titulo.trim() !== '' && !existentesTarea.has(_normalizarTitulo(t.titulo)))
+        .map((t) => ({ titulo: t.titulo.trim(), descripcion: typeof t.descripcion === 'string' ? t.descripcion.trim() : '' }))
+    : [];
+
+  const ideas = Array.isArray(input.ideas)
+    ? input.ideas
+        .filter((i) => i && typeof i.titulo === 'string' && i.titulo.trim() !== '')
+        .map((i) => ({ titulo: i.titulo.trim(), descripcion: typeof i.descripcion === 'string' ? i.descripcion.trim() : '' }))
+    : [];
+
+  return { resumen, arquitecturaDetectada, tecnologias, documentos, funcionalidades, hallazgos, tareas, ideas };
+}
+
+const HERRAMIENTA_ANALISIS_REPOSITORIO = {
+  name: 'registrar_analisis_repositorio',
+  description:
+    'Registra el resultado de analizar el código fuente de un repositorio: arquitectura, tecnologías, documentación propuesta, funcionalidades detectadas (con evidencia y nivel de confianza), hallazgos de auditoría, tareas e ideas propuestas.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      resumen: { type: 'string', description: 'Resumen general del análisis: qué es el proyecto y qué tan completo parece.' },
+      arquitecturaDetectada: { type: 'string', description: 'Descripción breve de la arquitectura/estructura del proyecto.' },
+      tecnologias: { type: 'array', items: { type: 'string' }, description: 'Lenguajes, frameworks y librerías principales.' },
+      documentos: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            titulo: { type: 'string' },
+            categoria: { type: 'string', enum: CATEGORIAS_DOCUMENTO_VALIDAS },
+            contenido: { type: 'string', description: 'Contenido en markdown del documento propuesto.' },
+          },
+          required: ['titulo', 'categoria', 'contenido'],
+        },
+      },
+      funcionalidades: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            nombre: { type: 'string' },
+            descripcion: { type: 'string' },
+            estadoSugerido: {
+              type: 'string',
+              enum: ESTADOS_FUNCIONALIDAD_VALIDOS,
+              description:
+                'Nunca "completada" salvo evidencia clara e inequívoca (implementación real y usada, no un esqueleto o TODO).',
+            },
+            confianza: { type: 'string', enum: CONFIANZAS_VALIDAS },
+            evidencia: { type: 'string', description: 'Qué archivos o fragmentos de código sustentan esta detección.' },
+          },
+          required: ['nombre', 'estadoSugerido', 'confianza', 'evidencia'],
+        },
+      },
+      hallazgos: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            titulo: { type: 'string' },
+            descripcion: { type: 'string' },
+            gravedad: { type: 'string', enum: GRAVEDADES_VALIDAS },
+          },
+          required: ['titulo', 'gravedad'],
+        },
+      },
+      tareas: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { titulo: { type: 'string' }, descripcion: { type: 'string' } },
+          required: ['titulo'],
+        },
+      },
+      ideas: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { titulo: { type: 'string' }, descripcion: { type: 'string' } },
+          required: ['titulo'],
+        },
+      },
+    },
+    required: ['resumen', 'arquitecturaDetectada', 'tecnologias', 'documentos', 'funcionalidades', 'hallazgos', 'tareas', 'ideas'],
+  },
+};
+
+const SYSTEM_ANALISIS_REPOSITORIO = `Eres un auditor técnico senior analizando el código fuente real de un repositorio para preparar su documentación y auditoría dentro de AppsDoc, una herramienta personal de gestión de proyectos de software.
+
+Recibes el árbol de archivos del repositorio y el contenido de los más relevantes -- puede que no sea el repositorio completo si es muy grande; analiza solo con lo que tienes, sin asumir que has visto más.
+
+REGLAS ESTRICTAS:
+- NUNCA marques una funcionalidad como "completada" solo porque exista código relacionado o un esqueleto/placeholder. Solo márcala así cuando la evidencia sea clara e inequívoca (implementación real, sin TODOs ni stubs pendientes). Ante la duda, usa "enProgreso" o "planificada" y confianza "baja" o "media".
+- No propongas ninguna funcionalidad, documento ni tarea que ya aparezca en las listas de "ya registrado" -- revísalas antes de proponer nada.
+- Basa cada hallazgo y cada funcionalidad detectada en evidencia concreta del código que has visto; cita el archivo relevante en el campo de evidencia.
+- Responde siempre en español, usando la herramienta "registrar_analisis_repositorio" -- nunca con texto libre.`;
+
+exports.analizarRepositorio = onCall(
+  { region: REGION, secrets: [_anthropicKey], timeoutSeconds: 180, memory: '512MiB' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Debes estar autenticado.');
+    const uid = request.auth.uid;
+    const proyectoIdCrudo = request.data && request.data.proyectoId;
+    if (typeof proyectoIdCrudo !== 'string' || proyectoIdCrudo.trim() === '') {
+      throw new HttpsError('invalid-argument', 'Falta el identificador del proyecto.');
+    }
+    const proyectoId = proyectoIdCrudo.trim();
+
+    const proyectoRef = db.collection('usuarios').doc(uid).collection('proyectos').doc(proyectoId);
+    const proyectoSnap = await proyectoRef.get();
+    if (!proyectoSnap.exists) throw new HttpsError('not-found', 'El proyecto no existe.');
+    const proyecto = proyectoSnap.data();
+    const propietario = proyecto.repoPropietario;
+    const nombreRepo = proyecto.repoNombre;
+    if (!propietario || !nombreRepo) {
+      throw new HttpsError('failed-precondition', 'Este proyecto no tiene un repositorio de GitHub vinculado.');
+    }
+
+    const hoyISO = new Date().toISOString().slice(0, 10);
+    await _comprobarYRegistrarUso(uid, hoyISO);
+
+    const [funcSnap, docSnap, tareaSnap, audSnap] = await Promise.all([
+      proyectoRef.collection('funcionalidades').get(),
+      proyectoRef.collection('documentos').get(),
+      proyectoRef.collection('tareas').get(),
+      proyectoRef.collection('auditorias').orderBy('fecha', 'desc').limit(3).get(),
+    ]);
+    const funcionalidadesExistentes = funcSnap.docs.map((d) => d.data().nombre).filter(Boolean);
+    const documentosExistentes = docSnap.docs.map((d) => d.data().titulo).filter(Boolean);
+    const tareasExistentes = tareaSnap.docs.map((d) => d.data().titulo).filter(Boolean);
+    const anteriorDoc = audSnap.docs.map((d) => d.data()).find((a) => a.origen === 'analisisRepositorio');
+    const analisisAnterior = anteriorDoc
+      ? `${_fechaISO(anteriorDoc.fecha) ? `(${_fechaISO(anteriorDoc.fecha)}) ` : ''}${anteriorDoc.resumen || ''}`
+      : null;
+
+    const { rama, sha } = await _obtenerRamaYCommit(propietario, nombreRepo);
+    const tarball = await _descargarTarball(propietario, nombreRepo, rama);
+
+    const todasEntradas = await _listarEntradasTar(tarball);
+    const todasLasRutas = todasEntradas.map((e) => e.path).filter(Boolean);
+    const rutasTexto = todasLasRutas.filter((p) => !_esArchivoIrrelevante(p));
+    const rutasAIncluir = _priorizarArchivos(rutasTexto, MAX_ARCHIVOS_CONTENIDO);
+    const contenidos = await _extraerContenidoTar(tarball, rutasAIncluir, PRESUPUESTO_CHARS_TOTAL);
+
+    const truncado = rutasTexto.length > contenidos.size || todasEntradas.length >= MAX_RUTAS_ARBOL;
+    const archivosOmitidos = Math.max(0, rutasTexto.length - contenidos.size);
+
+    const prompt = _construirPromptAnalisis({
+      proyecto: { nombre: proyecto.nombre || '' },
+      rutasArbol: todasLasRutas,
+      archivosConContenido: contenidos,
+      funcionalidadesExistentes,
+      documentosExistentes,
+      tareasExistentes,
+      analisisAnterior,
+    });
+
+    const apiKey = _anthropicKey.value();
+    if (!apiKey) throw new HttpsError('internal', 'API key no configurada en el servidor.');
+
+    const data = await _llamarAnthropic(apiKey, {
+      model: MODELO,
+      max_tokens: 4096,
+      system: SYSTEM_ANALISIS_REPOSITORIO,
+      tools: [HERRAMIENTA_ANALISIS_REPOSITORIO],
+      tool_choice: { type: 'tool', name: 'registrar_analisis_repositorio' },
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const resultado = _parsearAnalisisRepositorio(data.content, {
+      funcionalidadesExistentes,
+      documentosExistentes,
+      tareasExistentes,
+    });
+
+    return {
+      ...resultado,
+      truncado,
+      archivosAnalizados: contenidos.size,
+      archivosOmitidos,
+      commitAnalizado: sha,
+      rama,
+    };
+  },
+);
+
 module.exports._validarPreguntaInput = _validarPreguntaInput;
 module.exports._validarExtraccionInput = _validarExtraccionInput;
 module.exports._evaluarLimite = _evaluarLimite;
 module.exports._construirContexto = _construirContexto;
 module.exports._parsearRespuestaTexto = _parsearRespuestaTexto;
 module.exports._parsearPropuestaExtraida = _parsearPropuestaExtraida;
+module.exports._esArchivoIrrelevante = _esArchivoIrrelevante;
+module.exports._priorizarArchivos = _priorizarArchivos;
+module.exports._listarEntradasTar = _listarEntradasTar;
+module.exports._extraerContenidoTar = _extraerContenidoTar;
+module.exports._construirPromptAnalisis = _construirPromptAnalisis;
+module.exports._parsearAnalisisRepositorio = _parsearAnalisisRepositorio;

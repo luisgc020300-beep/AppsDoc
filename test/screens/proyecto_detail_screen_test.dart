@@ -2,6 +2,7 @@
 import 'dart:convert';
 
 import 'package:appsdoc/models/estado_tarea.dart';
+import 'package:appsdoc/screens/analisis/analisis_repositorio_screen.dart';
 import 'package:appsdoc/screens/asistente/asistente_screen.dart';
 import 'package:appsdoc/screens/documentacion/documento_form_screen.dart';
 import 'package:appsdoc/screens/funcionalidades/funcionalidad_form_screen.dart';
@@ -424,5 +425,27 @@ void main() {
 
     expect(find.byType(AsistenteScreen), findsOneWidget);
     expect(find.textContaining('REPARA'), findsWidgets);
+  });
+
+  testWidgets('el botón "Analizar con IA" abre la pantalla de análisis del repositorio vinculado', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+    GithubService.debugHttpClientOverride = MockClient(
+      (request) async => http.Response(jsonEncode({'default_branch': 'main', 'updated_at': '2026-11-01T10:00:00Z'}), 200),
+    );
+
+    await pumpDetailScreen(tester, id);
+
+    // find.widgetWithText compara runtimeType exacto -- FilledButton.tonalIcon
+    // construye una subclase privada (_FilledButtonWithIcon), así que un
+    // FilledButton "a secas" nunca casa con él. Hace falta un predicate con
+    // "is" para aceptar esa subclase.
+    await tester.tap(
+      find.ancestor(of: find.text('Analizar con IA'), matching: find.byWidgetPredicate((w) => w is FilledButton)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AnalisisRepositorioScreen), findsOneWidget);
+    expect(find.textContaining('owner/repo'), findsOneWidget);
   });
 }

@@ -120,4 +120,57 @@ void main() {
       );
     });
   });
+
+  group('analizarRepositorio()', () {
+    test('convierte la respuesta en una PropuestaAnalisisRepositorio', () async {
+      AiAssistantService.debugCallableOverride = (nombre, datos) async {
+        expect(nombre, 'analizarRepositorio');
+        expect(datos['proyectoId'], 'p1');
+        return {
+          'resumen': 'Resumen del análisis',
+          'arquitecturaDetectada': 'Flutter + Firebase',
+          'tecnologias': ['Flutter'],
+          'documentos': [],
+          'funcionalidades': [],
+          'hallazgos': [],
+          'tareas': [],
+          'ideas': [],
+          'truncado': false,
+          'archivosAnalizados': 10,
+          'archivosOmitidos': 0,
+          'commitAnalizado': 'abc123',
+          'rama': 'main',
+        };
+      };
+
+      final propuesta = await AiAssistantService.analizarRepositorio(proyectoId: 'p1');
+
+      expect(propuesta.resumen, 'Resumen del análisis');
+      expect(propuesta.arquitecturaDetectada, 'Flutter + Firebase');
+      expect(propuesta.archivosAnalizados, 10);
+      expect(propuesta.commitAnalizado, 'abc123');
+    });
+
+    test('failed-precondition (sin repositorio vinculado) se traduce con el mensaje del servidor', () async {
+      AiAssistantService.debugCallableOverride = (nombre, datos) async {
+        throw FirebaseFunctionsException(code: 'failed-precondition', message: 'Este proyecto no tiene un repositorio de GitHub vinculado.');
+      };
+
+      await expectLater(
+        AiAssistantService.analizarRepositorio(proyectoId: 'p1'),
+        throwsA(isA<AiAssistantException>().having((e) => e.mensaje, 'mensaje', contains('repositorio de GitHub vinculado'))),
+      );
+    });
+
+    test('resource-exhausted se traduce a un mensaje en español', () async {
+      AiAssistantService.debugCallableOverride = (nombre, datos) async {
+        throw FirebaseFunctionsException(code: 'resource-exhausted', message: 'x');
+      };
+
+      await expectLater(
+        AiAssistantService.analizarRepositorio(proyectoId: 'p1'),
+        throwsA(isA<AiAssistantException>()),
+      );
+    });
+  });
 }

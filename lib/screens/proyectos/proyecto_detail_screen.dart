@@ -25,6 +25,7 @@ import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
 import '../../widgets/estado_badge.dart';
 import '../../widgets/seccion_header.dart';
+import '../analisis/analisis_repositorio_screen.dart';
 import '../asistente/asistente_screen.dart';
 import '../auditorias/auditoria_form_screen.dart';
 import '../documentacion/documento_form_screen.dart';
@@ -398,6 +399,15 @@ class _SeccionGithubState extends State<_SeccionGithub> {
                   valor: DateFormat('dd/MM/yyyy HH:mm').format(_info!.actualizadoEn),
                 ),
               ],
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => AnalisisRepositorioScreen(proyecto: proyecto)),
+                ),
+                icon: const Icon(Icons.travel_explore),
+                label: const Text('Analizar con IA'),
+              ),
               const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerLeft,

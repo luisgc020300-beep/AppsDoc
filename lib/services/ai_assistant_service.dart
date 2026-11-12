@@ -13,6 +13,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/github_repo_info.dart';
+import '../models/propuesta_analisis_repositorio.dart';
 import '../models/propuesta_auditoria.dart';
 
 class AiAssistantException implements Exception {
@@ -71,18 +72,35 @@ class AiAssistantService {
     }
   }
 
+  /// Lee el repositorio GitHub ya vinculado al proyecto (solo lectura,
+  /// vía Cloud Function) y pide a Anthropic que lo analice: arquitectura,
+  /// tecnologías, documentación, funcionalidades detectadas, hallazgos,
+  /// tareas e ideas. Puede tardar bastante más que preguntar()/
+  /// extraerAuditoria() -- descarga el repositorio entero en el backend
+  /// antes de llamar a la IA.
+  static Future<PropuestaAnalisisRepositorio> analizarRepositorio({required String proyectoId}) async {
+    try {
+      final datos = await _llamar('analizarRepositorio', {'proyectoId': proyectoId});
+      return PropuestaAnalisisRepositorio.fromJson(datos);
+    } on FirebaseFunctionsException catch (e) {
+      throw AiAssistantException(_mensajeDeError(e));
+    }
+  }
+
   static String _mensajeDeError(FirebaseFunctionsException e) {
     switch (e.code) {
       case 'resource-exhausted':
-        return 'Has alcanzado el límite diario de peticiones a la IA. Inténtalo de nuevo mañana.';
+        return 'Has alcanzado el límite diario de peticiones a la IA, o GitHub ha limitado las peticiones. Inténtalo de nuevo más tarde.';
       case 'unauthenticated':
         return 'Tu sesión ha caducado. Vuelve a iniciar sesión.';
       case 'not-found':
-        return 'No se encontró el proyecto.';
+        return 'No se encontró el proyecto o el repositorio.';
+      case 'failed-precondition':
+        return e.message ?? 'Este proyecto no tiene un repositorio de GitHub vinculado.';
       case 'invalid-argument':
         return e.message ?? 'Petición inválida.';
       case 'unavailable':
-        return 'No se pudo contactar con el servicio de IA. Comprueba tu conexión.';
+        return 'No se pudo contactar con el servicio de IA o con GitHub. Comprueba tu conexión.';
       default:
         return 'No se pudo completar la petición a la IA. Inténtalo de nuevo.';
     }

@@ -75,3 +75,55 @@ test('extraerAuditoria respeta el límite diario ya agotado', async () => {
   const { error } = await llamar('extraerAuditoria', user.idToken, { proyectoId, texto: 'auditoría pegada de sobra' });
   assert.equal(error.status, 'RESOURCE_EXHAUSTED');
 });
+
+// ---------------------------------------------------------------------------
+// analizarRepositorio (Fase 9) -- los mismos caminos de seguridad, más el
+// de "proyecto sin repositorio vinculado" (nunca debería llegar siquiera a
+// intentar descargar nada de GitHub).
+// ---------------------------------------------------------------------------
+
+test('analizarRepositorio sin autenticación es rechazada', async () => {
+  const { error } = await llamar('analizarRepositorio', null, { proyectoId: 'x' });
+  assert.equal(error.status, 'UNAUTHENTICATED');
+});
+
+test('analizarRepositorio con proyectoId vacío devuelve invalid-argument', async () => {
+  const user = await crearUsuario();
+  const { error } = await llamar('analizarRepositorio', user.idToken, { proyectoId: '' });
+  assert.equal(error.status, 'INVALID_ARGUMENT');
+});
+
+test('analizarRepositorio con un proyecto que no es del que llama devuelve not-found', async () => {
+  const propietario = await crearUsuario();
+  const intruso = await crearUsuario();
+  const proyectoId = await crearProyecto(propietario.uid, {
+    repoUrl: 'https://github.com/owner/repo',
+    repoPropietario: 'owner',
+    repoNombre: 'repo',
+  });
+
+  const { error } = await llamar('analizarRepositorio', intruso.idToken, { proyectoId });
+  assert.equal(error.status, 'NOT_FOUND');
+});
+
+test('analizarRepositorio sin repositorio vinculado devuelve failed-precondition, sin tocar GitHub', async () => {
+  const user = await crearUsuario();
+  const proyectoId = await crearProyecto(user.uid); // repoPropietario/repoNombre vacíos por defecto
+
+  const { error } = await llamar('analizarRepositorio', user.idToken, { proyectoId });
+  assert.equal(error.status, 'FAILED_PRECONDITION');
+});
+
+test('analizarRepositorio respeta el límite diario ya agotado, sin llegar a llamar a GitHub ni a la IA', async () => {
+  const user = await crearUsuario();
+  const proyectoId = await crearProyecto(user.uid, {
+    repoUrl: 'https://github.com/owner/repo',
+    repoPropietario: 'owner',
+    repoNombre: 'repo',
+  });
+  const hoyISO = new Date().toISOString().slice(0, 10);
+  await db.collection('usuarios').doc(user.uid).collection('usoIA').doc(hoyISO).set({ peticiones: 40 });
+
+  const { error } = await llamar('analizarRepositorio', user.idToken, { proyectoId });
+  assert.equal(error.status, 'RESOURCE_EXHAUSTED');
+});
