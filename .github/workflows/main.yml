@@ -1,0 +1,122 @@
+name: Build iOS IPA
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+      - name: Flutter pub get
+        run: flutter pub get
+      - name: Flutter analyze
+        run: flutter analyze --no-fatal-infos
+      - name: Flutter test
+        run: flutter test
+      - name: Setup Node (Cloud Functions de IA, Fase 7)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: functions-tests/package-lock.json
+      - name: Install functions dependencies
+        working-directory: functions
+        run: npm install
+      - name: Install functions-tests dependencies
+        working-directory: functions-tests
+        run: npm install
+      - name: Backend unit tests (puros, sin emulador)
+        working-directory: functions-tests
+        run: npm test
+      # firebase-tools 15.x exige Java 21+ en tiempo de ejecución (no solo
+      # para los propios emuladores) -- mismo ajuste que REPARA.
+      - name: Setup Java (requerido por firebase-tools y los emuladores)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Cache Firebase emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('functions-tests/package-lock.json') }}
+          restore-keys: firebase-emulators-${{ runner.os }}-
+      - name: Backend security tests (Firestore + Auth + Functions emulator)
+        working-directory: functions-tests
+        run: npm run test:emulator
+
+  build-ios:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+      - name: Disable Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
+      - name: Flutter pub get
+        run: flutter pub get
+      - name: Generate Flutter iOS config
+        run: flutter build ios --config-only --release --no-codesign
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+      - name: Install CocoaPods
+        run: gem install cocoapods --no-document
+      - name: Pod install
+        run: |
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod install --repo-update
+        env:
+          COCOAPODS_DISABLE_STATS: true
+      - name: Flutter build iOS
+        run: flutter build ios --release --no-codesign
+      - name: Build with xcodebuild
+        run: |
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            -archivePath $GITHUB_WORKSPACE/build/Runner.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            archive
+      - name: Package IPA
+        run: |
+          APP_PATH=$(find $GITHUB_WORKSPACE/build/Runner.xcarchive/Products/Applications -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find $GITHUB_WORKSPACE/build/Runner.xcarchive -name "*.app" -type d | head -1)
+          fi
+          echo "Using app at: $APP_PATH"
+          mkdir -p $GITHUB_WORKSPACE/build/ipa/Payload
+          cp -r "$APP_PATH" $GITHUB_WORKSPACE/build/ipa/Payload/
+          cd $GITHUB_WORKSPACE/build/ipa
+          zip -r $GITHUB_WORKSPACE/appsdoc.ipa Payload/
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: appsdoc_ipa
+          path: ${{ github.workspace }}/appsdoc.ipa
+          retention-days: 7
