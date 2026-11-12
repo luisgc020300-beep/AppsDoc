@@ -2,9 +2,12 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/proyectos_list_controller.dart';
+import '../../models/estado_proyecto.dart';
 import '../../models/proyecto.dart';
 import '../../theme/design_tokens.dart';
-import '../ajustes/ajustes_screen.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/error_state.dart';
+import '../../widgets/progreso_ring.dart';
 import 'proyecto_detail_screen.dart';
 import 'proyecto_form_screen.dart';
 
@@ -17,26 +20,35 @@ class ProyectosListScreen extends StatefulWidget {
 
 class _ProyectosListScreenState extends State<ProyectosListScreen> {
   late final _controller = ProyectosListController();
+  final _busquedaCtrl = TextEditingController();
+  String _busqueda = '';
+  EstadoProyecto? _filtroEstado;
 
   @override
   void dispose() {
     _controller.dispose();
+    _busquedaCtrl.dispose();
     super.dispose();
+  }
+
+  List<Proyecto> _filtrar(List<Proyecto> proyectos) {
+    var resultado = proyectos;
+    if (_filtroEstado != null) {
+      resultado = resultado.where((p) => p.estado == _filtroEstado).toList();
+    }
+    if (_busqueda.trim().isNotEmpty) {
+      final q = _busqueda.trim().toLowerCase();
+      resultado = resultado
+          .where((p) => p.nombre.toLowerCase().contains(q) || p.descripcion.toLowerCase().contains(q))
+          .toList();
+    }
+    return resultado;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('AppsDoc'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Ajustes',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AjustesScreen())),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mis proyectos')),
       body: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) {
@@ -44,79 +56,90 @@ class _ProyectosListScreenState extends State<ProyectosListScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (_controller.error != null) {
-            return _ErrorState(error: _controller.error!);
+            return ErrorState(titulo: 'No se pudieron cargar tus proyectos', error: _controller.error!);
           }
-          final proyectos = _controller.proyectos!;
-          if (proyectos.isEmpty) {
-            return const _EmptyState();
+          final todos = _controller.proyectos!;
+          if (todos.isEmpty) {
+            return const EmptyState(
+              icono: Icons.dashboard_customize_outlined,
+              titulo: 'Todavía no tienes ningún proyecto',
+              subtitulo: 'Añade el primero con el botón +.',
+            );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: proyectos.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 12),
-            itemBuilder: (context, i) => _ProyectoCard(
-              proyecto: proyectos[i],
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => ProyectoDetailScreen(proyectoId: proyectos[i].id)),
+          final visibles = _filtrar(todos);
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: TextField(
+                  controller: _busquedaCtrl,
+                  onChanged: (v) => setState(() => _busqueda = v),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar proyecto…',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _busqueda.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => setState(() {
+                              _busquedaCtrl.clear();
+                              _busqueda = '';
+                            }),
+                          ),
+                  ),
+                ),
               ),
-            ),
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: const Text('Todos'),
+                        selected: _filtroEstado == null,
+                        onSelected: (_) => setState(() => _filtroEstado = null),
+                      ),
+                    ),
+                    for (final estado in EstadoProyecto.values)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(estado.etiqueta),
+                          avatar: Icon(estado.icono, size: 16),
+                          selected: _filtroEstado == estado,
+                          onSelected: (_) => setState(() => _filtroEstado = _filtroEstado == estado ? null : estado),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: visibles.isEmpty
+                    ? const EmptyState(icono: Icons.search_off, titulo: 'Ningún proyecto coincide')
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        itemCount: visibles.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (context, i) => _ProyectoCard(
+                          proyecto: visibles[i],
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => ProyectoDetailScreen(proyectoId: visibles[i].id)),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
           );
         },
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProyectoFormScreen())),
         child: const Icon(Icons.add),
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.dashboard_customize_outlined, size: 48, color: colors.textMuted),
-            const SizedBox(height: 16),
-            Text('Todavía no tienes ningún proyecto', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text('Añade el primero con el botón +.', textAlign: TextAlign.center, style: TextStyle(color: colors.textMuted)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.error});
-
-  final Object error;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: colors.danger),
-            const SizedBox(height: 16),
-            Text('No se pudieron cargar tus proyectos', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text('$error', textAlign: TextAlign.center, style: TextStyle(color: colors.textMuted)),
-          ],
-        ),
       ),
     );
   }
@@ -131,10 +154,11 @@ class _ProyectoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final estado = proyecto.estado;
+    final colors = context.colors;
     return Card(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -169,7 +193,7 @@ class _ProyectoCard extends StatelessWidget {
                           const SizedBox(width: 8),
                           Tooltip(
                             message: 'Repositorio conectado',
-                            child: Icon(Icons.hub_outlined, size: 14, color: context.colors.success),
+                            child: Icon(Icons.hub_outlined, size: 14, color: colors.success),
                           ),
                         ],
                       ],
@@ -177,46 +201,12 @@ class _ProyectoCard extends StatelessWidget {
                   ],
                 ),
               ),
-              _AnilloProgreso(porcentaje: proyecto.progresoPorcentaje),
+              ProgresoRing(porcentaje: proyecto.progresoPorcentaje, tamano: 44),
               const SizedBox(width: 4),
               const Icon(Icons.chevron_right),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Mismo número que en la ficha del proyecto (ProgresoService.calcular(),
-/// cacheado en Proyecto.progresoPorcentaje) -- aquí solo se pinta, nunca
-/// se recalcula ni se deja tocar.
-class _AnilloProgreso extends StatelessWidget {
-  const _AnilloProgreso({required this.porcentaje});
-
-  final int porcentaje;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return SizedBox(
-      width: 40,
-      height: 40,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          SizedBox(
-            width: 36,
-            height: 36,
-            child: CircularProgressIndicator(
-              value: porcentaje / 100,
-              strokeWidth: 3,
-              backgroundColor: colors.surfaceMuted,
-              valueColor: AlwaysStoppedAnimation(colors.accent),
-            ),
-          ),
-          Text('$porcentaje%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: colors.textMuted)),
-        ],
       ),
     );
   }

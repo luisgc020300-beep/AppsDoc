@@ -62,18 +62,25 @@ void main() {
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);
 
-  // La ficha es una sola lista larga de secciones (sin tabs, ver
-  // arquitectura aprobada) que crece con cada fase -- Repositorio y
-  // Progreso ya la hacen más alta que el viewport por defecto del test
-  // (800x600), y volverá a crecer en fases futuras. En vez de ir
-  // persiguiendo con scrollUntilVisible() qué sección queda o no dentro
-  // del viewport en cada fase, se agranda el "surface" del test para que
-  // la pantalla entera quepa de una vez: así los tests comprueban
-  // contenido, no geometría de scroll.
   Future<void> pumpDetailScreen(WidgetTester tester, String proyectoId) async {
-    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: proyectoId)));
+    await tester.pumpAndSettle();
+  }
+
+  /// La ficha es un TabBar desplazable (Resumen, Funcionalidades,
+  /// Documentación, Tareas, Ideas, Auditorías, Historial) -- cada pestaña
+  /// es su propia página, así que hace falta cambiar de pestaña antes de
+  /// interactuar con el contenido de cualquiera que no sea "Resumen" (la
+  /// que se ve al entrar).
+  Future<void> irATab(WidgetTester tester, String etiqueta) async {
+    final tab = find.widgetWithText(Tab, etiqueta);
+    // El TabBar es desplazable (7 pestañas) -- "Historial", la última,
+    // queda fuera del ancho del viewport de test hasta que se desplaza.
+    await tester.ensureVisible(tab);
+    await tester.pumpAndSettle();
+    await tester.tap(tab);
     await tester.pumpAndSettle();
   }
 
@@ -82,20 +89,27 @@ void main() {
 
     await pumpDetailScreen(tester, id);
 
+    // Resumen (pestaña por defecto).
     expect(find.text('Mantenimiento del hogar'), findsOneWidget);
     expect(find.text('Repositorio'), findsOneWidget);
     expect(find.text('Sin repositorio vinculado.'), findsOneWidget);
-    expect(find.text('Funcionalidades'), findsOneWidget);
+
+    await irATab(tester, 'Funcionalidades');
     expect(find.text('Sin funcionalidades todavía.'), findsOneWidget);
-    expect(find.text('Documentación'), findsOneWidget);
+
+    await irATab(tester, 'Documentación');
     expect(find.text('Sin documentos todavía.'), findsOneWidget);
-    expect(find.text('Tareas'), findsOneWidget);
+
+    await irATab(tester, 'Tareas');
     expect(find.text('Sin tareas todavía.'), findsOneWidget);
-    expect(find.text('Ideas'), findsOneWidget);
+
+    await irATab(tester, 'Ideas');
     expect(find.text('Sin ideas todavía.'), findsOneWidget);
-    expect(find.text('Auditorías'), findsOneWidget);
+
+    await irATab(tester, 'Auditorías');
     expect(find.text('Sin auditorías todavía.'), findsOneWidget);
-    expect(find.text('Historial'), findsOneWidget);
+
+    await irATab(tester, 'Historial');
     // El propio crear() del proyecto ya dejó un evento -- nunca está vacío.
     expect(find.text('Sin actividad todavía.'), findsNothing);
     expect(find.textContaining('Proyecto creado'), findsOneWidget);
@@ -105,6 +119,7 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Funcionalidades');
 
     await tester.tap(find.byTooltip('Añadir funcionalidad'));
     await tester.pumpAndSettle();
@@ -123,6 +138,7 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Documentación');
 
     await tester.tap(find.byTooltip('Añadir documento'));
     await tester.pumpAndSettle();
@@ -139,7 +155,7 @@ void main() {
 
   testWidgets('eliminar el proyecto desde "editar" cierra también la pantalla de detalle', (tester) async {
     final id = await ProyectoService.crear(nombre: 'Efímero');
-    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(
@@ -175,6 +191,7 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Tareas');
 
     await tester.tap(find.byTooltip('Añadir tarea'));
     await tester.pumpAndSettle();
@@ -193,6 +210,7 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Ideas');
 
     await tester.tap(find.byTooltip('Añadir idea'));
     await tester.pumpAndSettle();
@@ -212,6 +230,7 @@ void main() {
     await TareaService.crear(proyectoId: id, titulo: 'Tarea rápida');
 
     await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Tareas');
 
     expect(find.text('Pendiente'), findsOneWidget);
 
@@ -229,6 +248,7 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Auditorías');
 
     await tester.tap(find.byTooltip('Añadir auditoría'));
     await tester.pumpAndSettle();
@@ -240,6 +260,7 @@ void main() {
     expect(find.text('Sin auditorías todavía.'), findsNothing);
     // La fila de la lista no muestra el resumen, solo fecha/origen -- lo
     // que sí confirma que se creó es que el historial recoja el evento.
+    await irATab(tester, 'Historial');
     expect(find.textContaining('Auditoría creada'), findsOneWidget);
   });
 
@@ -247,6 +268,7 @@ void main() {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Tareas');
 
     await tester.tap(find.byTooltip('Añadir tarea'));
     await tester.pumpAndSettle();
@@ -254,6 +276,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Crear tarea'));
     await tester.pumpAndSettle();
 
+    await irATab(tester, 'Historial');
     expect(find.textContaining('Tarea creada: "Tarea con historial"'), findsOneWidget);
   });
 
@@ -281,12 +304,14 @@ void main() {
     await pumpDetailScreen(tester, id);
     expect(find.text('45%'), findsOneWidget);
 
+    await irATab(tester, 'Funcionalidades');
     await tester.tap(find.text('Login'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Completada'));
     await tester.tap(find.widgetWithText(FilledButton, 'Guardar cambios'));
     await tester.pumpAndSettle();
 
+    await irATab(tester, 'Resumen');
     expect(find.text('85%'), findsOneWidget);
     expect(find.text('45%'), findsNothing);
   });

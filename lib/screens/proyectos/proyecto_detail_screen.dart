@@ -1,9 +1,10 @@
 // lib/screens/proyectos/proyecto_detail_screen.dart
 //
-// Secciones, no tabs (ver arquitectura aprobada): Resumen arriba, luego
-// Funcionalidades, Documentación, Tareas, Ideas, Auditorías e Historial
-// como bloques en la misma pantalla. Progreso/GitHub/IA llegan en fases
-// posteriores.
+// Fase 8: siete secciones (Resumen, Funcionalidades, Documentación,
+// Tareas, Ideas, Auditorías, Historial) ya no se amontonan en una sola
+// lista vertical interminable -- cada una vive en su propia pestaña de un
+// TabBar desplazable, bajo la misma AppBar. Resumen agrupa la ficha básica
+// del proyecto, el repositorio de GitHub y el desglose de progreso.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -22,6 +23,8 @@ import '../../services/progreso_service.dart';
 import '../../services/proyecto_service.dart';
 import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
+import '../../widgets/estado_badge.dart';
+import '../../widgets/seccion_header.dart';
 import '../asistente/asistente_screen.dart';
 import '../auditorias/auditoria_form_screen.dart';
 import '../documentacion/documento_form_screen.dart';
@@ -29,6 +32,16 @@ import '../funcionalidades/funcionalidad_form_screen.dart';
 import '../ideas/idea_form_screen.dart';
 import '../tareas/tarea_form_screen.dart';
 import 'proyecto_form_screen.dart';
+
+const _tabs = [
+  Tab(text: 'Resumen'),
+  Tab(text: 'Funcionalidades'),
+  Tab(text: 'Documentación'),
+  Tab(text: 'Tareas'),
+  Tab(text: 'Ideas'),
+  Tab(text: 'Auditorías'),
+  Tab(text: 'Historial'),
+];
 
 class ProyectoDetailScreen extends StatefulWidget {
   const ProyectoDetailScreen({required this.proyectoId, super.key});
@@ -62,34 +75,36 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(_controller.proyecto?.nombre ?? ''),
-            actions: [
-              if (_controller.proyecto != null) ...[
-                IconButton(
-                  icon: const Icon(Icons.auto_awesome),
-                  tooltip: 'Asistente',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => AsistenteScreen(proyecto: _controller.proyecto!)),
+        final proyecto = _controller.proyecto;
+        return DefaultTabController(
+          length: _tabs.length,
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(proyecto?.nombre ?? ''),
+              actions: [
+                if (proyecto != null) ...[
+                  IconButton(
+                    icon: const Icon(Icons.auto_awesome),
+                    tooltip: 'Asistente',
+                    onPressed: () =>
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => AsistenteScreen(proyecto: proyecto))),
                   ),
-                ),
-                IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'Editar', onPressed: _editarProyecto),
+                  IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'Editar', onPressed: _editarProyecto),
+                ],
               ],
-            ],
+              bottom: proyecto == null ? null : const TabBar(isScrollable: true, tabs: _tabs),
+            ),
+            body: _buildBody(context, colors, proyecto),
           ),
-          body: _buildBody(context, colors),
         );
       },
     );
   }
 
-  Widget _buildBody(BuildContext context, AppsDocColorsExt colors) {
+  Widget _buildBody(BuildContext context, AppsDocColorsExt colors, Proyecto? proyecto) {
     if (_controller.proyectoCargando) {
       return const Center(child: CircularProgressIndicator());
     }
-    final proyecto = _controller.proyecto;
     if (proyecto == null) {
       // Eliminarlo desde esta misma pantalla ya cierra el detalle (ver
       // _editarProyecto) -- esto solo cubre que haya dejado de existir por
@@ -98,6 +113,49 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
         child: Text('Este proyecto ya no existe.', style: TextStyle(color: colors.textMuted)),
       );
     }
+    return TabBarView(
+      children: [
+        _TabResumen(
+          proyecto: proyecto,
+          funcionalidades: _controller.funcionalidades,
+          tareas: _controller.tareas,
+          documentos: _controller.documentos,
+          auditorias: _controller.auditorias,
+        ),
+        _contenedorTab(_SeccionFuncionalidades(proyectoId: widget.proyectoId, funcionalidades: _controller.funcionalidades)),
+        _contenedorTab(_SeccionDocumentacion(proyectoId: widget.proyectoId, documentos: _controller.documentos)),
+        _contenedorTab(_SeccionTareas(proyectoId: widget.proyectoId, tareas: _controller.tareas)),
+        _contenedorTab(_SeccionIdeas(proyectoId: widget.proyectoId, ideas: _controller.ideas)),
+        _contenedorTab(_SeccionAuditorias(proyectoId: widget.proyectoId, auditorias: _controller.auditorias)),
+        _contenedorTab(_SeccionHistorial(historial: _controller.historial)),
+      ],
+    );
+  }
+
+  Widget _contenedorTab(Widget seccion) => ListView(padding: const EdgeInsets.all(16), children: [seccion]);
+}
+
+/// Identidad del proyecto, repositorio de GitHub y desglose de progreso --
+/// las tres cosas que antes encabezaban la lista interminable, ahora
+/// agrupadas en la primera pestaña.
+class _TabResumen extends StatelessWidget {
+  const _TabResumen({
+    required this.proyecto,
+    required this.funcionalidades,
+    required this.tareas,
+    required this.documentos,
+    required this.auditorias,
+  });
+
+  final Proyecto proyecto;
+  final List<Funcionalidad>? funcionalidades;
+  final List<Tarea>? tareas;
+  final List<Documento>? documentos;
+  final List<Auditoria>? auditorias;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -109,40 +167,58 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
               children: [
                 if (proyecto.descripcion.isNotEmpty) ...[
                   Text(proyecto.descripcion, style: Theme.of(context).textTheme.bodyMedium),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                 ],
+                EstadoBadge(icono: proyecto.estado.icono, etiqueta: proyecto.estado.etiqueta, color: proyecto.estado.color),
+                const SizedBox(height: 14),
+                const Divider(),
+                const SizedBox(height: 10),
                 Row(
                   children: [
-                    Icon(proyecto.estado.icono, size: 16, color: proyecto.estado.color),
-                    const SizedBox(width: 6),
-                    Text(proyecto.estado.etiqueta, style: TextStyle(color: proyecto.estado.color)),
+                    Expanded(
+                      child: _InfoGeneral(
+                        etiqueta: 'Creado',
+                        valor: DateFormat('dd/MM/yyyy').format(proyecto.createdAt),
+                        colors: colors,
+                      ),
+                    ),
+                    Expanded(
+                      child: _InfoGeneral(
+                        etiqueta: 'Actualizado',
+                        valor: DateFormat('dd/MM/yyyy').format(proyecto.updatedAt),
+                        colors: colors,
+                      ),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         _SeccionGithub(proyecto: proyecto),
-        const SizedBox(height: 20),
-        _SeccionProgreso(
-          funcionalidades: _controller.funcionalidades,
-          tareas: _controller.tareas,
-          documentos: _controller.documentos,
-          auditorias: _controller.auditorias,
-        ),
-        const SizedBox(height: 20),
-        _SeccionFuncionalidades(proyectoId: widget.proyectoId, funcionalidades: _controller.funcionalidades),
-        const SizedBox(height: 20),
-        _SeccionDocumentacion(proyectoId: widget.proyectoId, documentos: _controller.documentos),
-        const SizedBox(height: 20),
-        _SeccionTareas(proyectoId: widget.proyectoId, tareas: _controller.tareas),
-        const SizedBox(height: 20),
-        _SeccionIdeas(proyectoId: widget.proyectoId, ideas: _controller.ideas),
-        const SizedBox(height: 20),
-        _SeccionAuditorias(proyectoId: widget.proyectoId, auditorias: _controller.auditorias),
-        const SizedBox(height: 20),
-        _SeccionHistorial(historial: _controller.historial),
+        const SizedBox(height: 16),
+        _SeccionProgreso(funcionalidades: funcionalidades, tareas: tareas, documentos: documentos, auditorias: auditorias),
+      ],
+    );
+  }
+}
+
+class _InfoGeneral extends StatelessWidget {
+  const _InfoGeneral({required this.etiqueta, required this.valor, required this.colors});
+
+  final String etiqueta;
+  final String valor;
+  final AppsDocColorsExt colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(etiqueta, style: TextStyle(color: colors.textMuted, fontSize: 12)),
+        const SizedBox(height: 2),
+        Text(valor, style: Theme.of(context).textTheme.bodyMedium),
       ],
     );
   }
@@ -286,16 +362,13 @@ class _SeccionGithubState extends State<_SeccionGithub> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.hub_outlined, size: 18, color: proyecto.repoConectado ? colors.success : colors.textMuted),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Repositorio', style: Theme.of(context).textTheme.titleMedium)),
-                Text(
-                  proyecto.repoConectado ? 'Conectado' : 'Sin conectar',
-                  style: TextStyle(color: proyecto.repoConectado ? colors.success : colors.textMuted, fontSize: 12),
-                ),
-              ],
+            SeccionHeader(
+              titulo: 'Repositorio',
+              icono: Icons.hub_outlined,
+              accion: Text(
+                proyecto.repoConectado ? 'Conectado' : 'Sin conectar',
+                style: TextStyle(color: proyecto.repoConectado ? colors.success : colors.textMuted, fontSize: 12),
+              ),
             ),
             const SizedBox(height: 10),
             if (!proyecto.repoConectado) ...[
@@ -418,6 +491,7 @@ class _SeccionProgreso extends StatelessWidget {
                         child: CircularProgressIndicator(
                           value: resultado.porcentaje / 100,
                           strokeWidth: 5,
+                          strokeCap: StrokeCap.round,
                           backgroundColor: colors.surfaceMuted,
                           valueColor: AlwaysStoppedAnimation(colors.accent),
                         ),
@@ -472,18 +546,16 @@ class _SeccionFuncionalidades extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(child: Text('Funcionalidades', style: Theme.of(context).textTheme.titleMedium)),
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              tooltip: 'Añadir funcionalidad',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => FuncionalidadFormScreen(proyectoId: proyectoId)),
-              ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'Añadir funcionalidad',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => FuncionalidadFormScreen(proyectoId: proyectoId)),
             ),
-          ],
+          ),
         ),
         if (funcionalidades == null)
           const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
@@ -495,10 +567,11 @@ class _SeccionFuncionalidades extends StatelessWidget {
         else
           ...funcionalidades!.map(
             (f) => Card(
+              margin: const EdgeInsets.only(top: 10),
               child: ListTile(
                 leading: Icon(f.estado.icono, color: f.estado.color),
                 title: Text(f.nombre),
-                subtitle: Text(f.estado.etiqueta, style: TextStyle(color: f.estado.color)),
+                subtitle: EstadoBadge(icono: f.estado.icono, etiqueta: f.estado.etiqueta, color: f.estado.color, compacto: true),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => FuncionalidadFormScreen(proyectoId: proyectoId, funcionalidadExistente: f)),
@@ -523,18 +596,16 @@ class _SeccionDocumentacion extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(child: Text('Documentación', style: Theme.of(context).textTheme.titleMedium)),
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              tooltip: 'Añadir documento',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => DocumentoFormScreen(proyectoId: proyectoId)),
-              ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'Añadir documento',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => DocumentoFormScreen(proyectoId: proyectoId)),
             ),
-          ],
+          ),
         ),
         if (documentos == null)
           const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
@@ -546,10 +617,11 @@ class _SeccionDocumentacion extends StatelessWidget {
         else
           ...documentos!.map(
             (d) => Card(
+              margin: const EdgeInsets.only(top: 10),
               child: ListTile(
                 leading: Icon(d.categoria.icono, color: d.categoria.color),
                 title: Text(d.titulo),
-                subtitle: Text(d.categoria.etiqueta, style: TextStyle(color: d.categoria.color)),
+                subtitle: EstadoBadge(icono: d.categoria.icono, etiqueta: d.categoria.etiqueta, color: d.categoria.color, compacto: true),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => DocumentoFormScreen(proyectoId: proyectoId, documentoExistente: d)),
@@ -574,15 +646,13 @@ class _SeccionTareas extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(child: Text('Tareas', style: Theme.of(context).textTheme.titleMedium)),
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              tooltip: 'Añadir tarea',
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TareaFormScreen(proyectoId: proyectoId))),
-            ),
-          ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'Añadir tarea',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TareaFormScreen(proyectoId: proyectoId))),
+          ),
         ),
         if (tareas == null)
           const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
@@ -594,14 +664,13 @@ class _SeccionTareas extends StatelessWidget {
         else
           ...tareas!.map(
             (t) => Card(
+              margin: const EdgeInsets.only(top: 10),
               child: ListTile(
                 leading: Icon(t.prioridad.icono, color: t.prioridad.color),
                 title: Text(t.titulo),
                 subtitle: Row(
                   children: [
-                    Icon(t.estado.icono, size: 14, color: t.estado.color),
-                    const SizedBox(width: 4),
-                    Text(t.estado.etiqueta, style: TextStyle(color: t.estado.color)),
+                    EstadoBadge(icono: t.estado.icono, etiqueta: t.estado.etiqueta, color: t.estado.color, compacto: true),
                     if (t.fechaLimite != null) ...[
                       const SizedBox(width: 10),
                       Icon(Icons.calendar_today_outlined, size: 13, color: t.vencida ? colors.danger : colors.textMuted),
@@ -648,15 +717,13 @@ class _SeccionIdeas extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(child: Text('Ideas', style: Theme.of(context).textTheme.titleMedium)),
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              tooltip: 'Añadir idea',
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId))),
-            ),
-          ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'Añadir idea',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId))),
+          ),
         ),
         if (ideas == null)
           const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
@@ -668,10 +735,11 @@ class _SeccionIdeas extends StatelessWidget {
         else
           ...ideas!.map(
             (i) => Card(
+              margin: const EdgeInsets.only(top: 10),
               child: ListTile(
                 leading: Icon(i.estado.icono, color: i.estado.color),
                 title: Text(i.titulo),
-                subtitle: Text(i.estado.etiqueta, style: TextStyle(color: i.estado.color)),
+                subtitle: EstadoBadge(icono: i.estado.icono, etiqueta: i.estado.etiqueta, color: i.estado.color, compacto: true),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId, ideaExistente: i)),
@@ -696,15 +764,14 @@ class _SeccionAuditorias extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(child: Text('Auditorías', style: Theme.of(context).textTheme.titleMedium)),
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              tooltip: 'Añadir auditoría',
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AuditoriaFormScreen(proyectoId: proyectoId))),
-            ),
-          ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'Añadir auditoría',
+            onPressed: () =>
+                Navigator.push(context, MaterialPageRoute(builder: (_) => AuditoriaFormScreen(proyectoId: proyectoId))),
+          ),
         ),
         if (auditorias == null)
           const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
@@ -716,14 +783,13 @@ class _SeccionAuditorias extends StatelessWidget {
         else
           ...auditorias!.map(
             (a) => Card(
+              margin: const EdgeInsets.only(top: 10),
               child: ListTile(
                 leading: Icon(a.resultado.icono, color: a.resultado.color),
                 title: Text(DateFormat('dd/MM/yyyy').format(a.fecha)),
                 subtitle: Row(
                   children: [
-                    Icon(a.origen.icono, size: 14, color: a.origen.color),
-                    const SizedBox(width: 4),
-                    Text(a.origen.etiqueta, style: TextStyle(color: a.origen.color)),
+                    EstadoBadge(icono: a.origen.icono, etiqueta: a.origen.etiqueta, color: a.origen.color, compacto: true),
                     if (a.hallazgosAbiertos > 0) ...[
                       const SizedBox(width: 10),
                       Icon(Icons.flag_outlined, size: 14, color: colors.danger),
@@ -755,8 +821,6 @@ class _SeccionHistorial extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Historial', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 4),
         // Solo lectura -- lo generan el resto de servicios automáticamente,
         // nunca se añade ni se edita a mano.
         if (historial == null)
@@ -768,11 +832,14 @@ class _SeccionHistorial extends StatelessWidget {
           )
         else
           ...historial!.map(
-            (e) => ListTile(
-              dense: true,
-              leading: Icon(e.entidad.icono, color: colors.textMuted, size: 20),
-              title: Text(e.descripcion),
-              subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(e.fecha)),
+            (e) => Card(
+              margin: const EdgeInsets.only(top: 10),
+              child: ListTile(
+                dense: true,
+                leading: Icon(e.entidad.icono, color: colors.textMuted, size: 20),
+                title: Text(e.descripcion),
+                subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(e.fecha)),
+              ),
             ),
           ),
       ],

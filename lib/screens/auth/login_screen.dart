@@ -71,8 +71,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.dashboard_customize_outlined, size: 56, color: colors.accent),
-                  const SizedBox(height: 16),
+                  Center(
+                    child: Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(color: colors.accentMuted, borderRadius: BorderRadius.circular(20)),
+                      child: Icon(Icons.dashboard_customize_outlined, size: 36, color: colors.accent),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   Text('AppsDoc', textAlign: TextAlign.center, style: Theme.of(context).textTheme.displaySmall),
                   const SizedBox(height: 8),
                   Text(
@@ -80,7 +87,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(color: colors.textMuted),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 36),
                   AutofillGroup(
                     child: Column(
                       children: [
