@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Cloud Functions (Fase 7) -- nunca comitear dependencias de Node ni
+# valores de secretos locales para el emulador (los package-lock.json sí
+# se comitean, para builds reproducibles).
+functions/node_modules/
+functions-tests/node_modules/
+functions/.secret.local
+functions-tests/.secret.local

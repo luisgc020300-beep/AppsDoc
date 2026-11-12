@@ -22,6 +22,7 @@ import '../../services/progreso_service.dart';
 import '../../services/proyecto_service.dart';
 import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
+import '../asistente/asistente_screen.dart';
 import '../auditorias/auditoria_form_screen.dart';
 import '../documentacion/documento_form_screen.dart';
 import '../funcionalidades/funcionalidad_form_screen.dart';
@@ -65,8 +66,17 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
           appBar: AppBar(
             title: Text(_controller.proyecto?.nombre ?? ''),
             actions: [
-              if (_controller.proyecto != null)
+              if (_controller.proyecto != null) ...[
+                IconButton(
+                  icon: const Icon(Icons.auto_awesome),
+                  tooltip: 'Asistente',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AsistenteScreen(proyecto: _controller.proyecto!)),
+                  ),
+                ),
                 IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'Editar', onPressed: _editarProyecto),
+              ],
             ],
           ),
           body: _buildBody(context, colors),

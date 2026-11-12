@@ -9,6 +9,15 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  # El backend de Cloud Functions (Fase 7) es Node.js, no Dart -- sin esto,
+  # flutter analyze también escanea functions/ y functions-tests/ (incluido
+  # su node_modules, que trae de serie algún .dart suelto en plantillas de
+  # firebase-tools) y los trata como código Dart roto.
+  exclude:
+    - functions/**
+    - functions-tests/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

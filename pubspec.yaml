@@ -41,6 +41,9 @@ dependencies:
   cloud_firestore: ^6.1.2
   firebase_app_check: ^0.4.3
   firebase_crashlytics: ^5.0.0
+  # Proxy a Anthropic -- Fase 7, asistente de IA (Cloud Functions callable,
+  # nunca ninguna clave de API en el cliente).
+  cloud_functions: ^6.1.0
 
   # Preferencia local de tema (claro/oscuro/sistema) -- nunca para los
   # datos de proyectos, que viven en Firestore desde esta fase.

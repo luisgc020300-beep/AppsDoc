@@ -2,6 +2,7 @@
 import 'dart:convert';
 
 import 'package:appsdoc/models/estado_tarea.dart';
+import 'package:appsdoc/screens/asistente/asistente_screen.dart';
 import 'package:appsdoc/screens/documentacion/documento_form_screen.dart';
 import 'package:appsdoc/screens/funcionalidades/funcionalidad_form_screen.dart';
 import 'package:appsdoc/screens/ideas/idea_form_screen.dart';
@@ -386,5 +387,17 @@ void main() {
 
     expect(find.text('Sin repositorio vinculado.'), findsOneWidget);
     expect(find.text('owner/repo'), findsNothing);
+  });
+
+  testWidgets('el icono de asistente abre la pantalla del asistente de IA para este proyecto', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    await pumpDetailScreen(tester, id);
+
+    await tester.tap(find.byTooltip('Asistente'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AsistenteScreen), findsOneWidget);
+    expect(find.textContaining('REPARA'), findsWidgets);
   });
 }

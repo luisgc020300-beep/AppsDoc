@@ -23,6 +23,12 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default"
+    }
+  ],
   "emulators": {
     "firestore": {
       "port": 8080,
@@ -30,6 +36,10 @@
     },
     "auth": {
       "port": 9099,
+      "host": "127.0.0.1"
+    },
+    "functions": {
+      "port": 5001,
       "host": "127.0.0.1"
     },
     "ui": {
