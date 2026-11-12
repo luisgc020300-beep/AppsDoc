@@ -75,6 +75,24 @@ dev_dependencies:
   # Firestore real -- mismo paquete y versión que REPARA.
   fake_cloud_firestore: ^4.1.0
 
+  # Generador de iconos de la app a partir de assets/icon/app_icon.png --
+  # mismo paquete que REPARA Pro.
+  flutter_launcher_icons: ^0.14.4
+
+# Icono propio de AppsDoc (CEO, noviembre 2026): la "A" en azul eléctrico
+# sobre azul marino, mismo lenguaje que el resto de la identidad visual de
+# la Fase 8 (ver lib/theme/design_tokens.dart). El icono ya trae su propio
+# fondo navy opaco hasta las esquinas redondeadas, así que
+# adaptive_icon_background no llega a verse realmente -- solo hace falta
+# porque el plugin exige un valor.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#0A1322"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  remove_alpha_ios: true
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -86,10 +104,8 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/icon/app_icon.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
