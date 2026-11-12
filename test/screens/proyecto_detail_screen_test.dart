@@ -1,10 +1,15 @@
 // test/screens/proyecto_detail_screen_test.dart
+import 'package:appsdoc/models/estado_tarea.dart';
 import 'package:appsdoc/screens/documentacion/documento_form_screen.dart';
 import 'package:appsdoc/screens/funcionalidades/funcionalidad_form_screen.dart';
+import 'package:appsdoc/screens/ideas/idea_form_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyecto_detail_screen.dart';
+import 'package:appsdoc/screens/tareas/tarea_form_screen.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
+import 'package:appsdoc/services/idea_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
+import 'package:appsdoc/services/tarea_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +24,10 @@ void main() {
     FuncionalidadService.debugUidOverride = 'uid-test';
     DocumentoService.debugFirestoreOverride = db;
     DocumentoService.debugUidOverride = 'uid-test';
+    TareaService.debugFirestoreOverride = db;
+    TareaService.debugUidOverride = 'uid-test';
+    IdeaService.debugFirestoreOverride = db;
+    IdeaService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -28,6 +37,10 @@ void main() {
     FuncionalidadService.debugUidOverride = null;
     DocumentoService.debugFirestoreOverride = null;
     DocumentoService.debugUidOverride = null;
+    TareaService.debugFirestoreOverride = null;
+    TareaService.debugUidOverride = null;
+    IdeaService.debugFirestoreOverride = null;
+    IdeaService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);
@@ -41,8 +54,12 @@ void main() {
     expect(find.text('Mantenimiento del hogar'), findsOneWidget);
     expect(find.text('Funcionalidades'), findsOneWidget);
     expect(find.text('Documentación'), findsOneWidget);
+    expect(find.text('Tareas'), findsOneWidget);
+    expect(find.text('Ideas'), findsOneWidget);
     expect(find.text('Sin funcionalidades todavía.'), findsOneWidget);
     expect(find.text('Sin documentos todavía.'), findsOneWidget);
+    expect(find.text('Sin tareas todavía.'), findsOneWidget);
+    expect(find.text('Sin ideas todavía.'), findsOneWidget);
   });
 
   testWidgets('añadir una funcionalidad desde la sección la hace aparecer en la lista', (tester) async {
@@ -70,7 +87,7 @@ void main() {
     await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).last);
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(1));
     await tester.pumpAndSettle();
     expect(find.byType(DocumentoFormScreen), findsOneWidget);
 
@@ -113,5 +130,63 @@ void main() {
 
     expect(find.byType(ProyectoDetailScreen), findsNothing);
     expect(find.text('abrir'), findsOneWidget);
+  });
+
+  testWidgets('añadir una tarea desde la sección la hace aparecer en la lista', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(2));
+    await tester.pumpAndSettle();
+    expect(find.byType(TareaFormScreen), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Escribir reglas de Firestore');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Crear tarea'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Crear tarea'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TareaFormScreen), findsNothing);
+    expect(find.text('Escribir reglas de Firestore'), findsOneWidget);
+    expect(find.text('Sin tareas todavía.'), findsNothing);
+  });
+
+  testWidgets('añadir una idea desde la sección la hace aparecer en la lista', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.add_circle_outline).at(3));
+    await tester.pumpAndSettle();
+    expect(find.byType(IdeaFormScreen), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Soporte offline');
+    await tester.tap(find.widgetWithText(FilledButton, 'Crear idea'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(IdeaFormScreen), findsNothing);
+    expect(find.text('Soporte offline'), findsOneWidget);
+    expect(find.text('Sin ideas todavía.'), findsNothing);
+  });
+
+  testWidgets('cambiar el estado de una tarea desde el menú de la lista no abre su ficha', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    await TareaService.crear(proyectoId: id, titulo: 'Tarea rápida');
+
+    await tester.pumpWidget(envolver(ProyectoDetailScreen(proyectoId: id)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pendiente'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(PopupMenuItem<EstadoTarea>, 'Completada').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TareaFormScreen), findsNothing);
+    expect(find.text('Completada'), findsOneWidget);
+    expect(find.text('Pendiente'), findsNothing);
   });
 }

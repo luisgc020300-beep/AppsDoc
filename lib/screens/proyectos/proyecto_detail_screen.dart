@@ -1,16 +1,24 @@
 // lib/screens/proyectos/proyecto_detail_screen.dart
 //
 // Secciones, no tabs (ver arquitectura aprobada): Resumen arriba, luego
-// Funcionalidades y Documentación como bloques en la misma pantalla.
-// Auditorías/Tareas/Ideas/Historial llegan en fases posteriores.
+// Funcionalidades, Documentación, Tareas e Ideas como bloques en la misma
+// pantalla. Auditorías/Historial/Progreso/GitHub/IA llegan en fases
+// posteriores.
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../controllers/proyecto_detail_controller.dart';
 import '../../models/documento.dart';
+import '../../models/estado_tarea.dart';
 import '../../models/funcionalidad.dart';
+import '../../models/idea.dart';
+import '../../models/tarea.dart';
+import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
 import '../documentacion/documento_form_screen.dart';
 import '../funcionalidades/funcionalidad_form_screen.dart';
+import '../ideas/idea_form_screen.dart';
+import '../tareas/tarea_form_screen.dart';
 import 'proyecto_form_screen.dart';
 
 class ProyectoDetailScreen extends StatefulWidget {
@@ -100,6 +108,10 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
         _SeccionFuncionalidades(proyectoId: widget.proyectoId, funcionalidades: _controller.funcionalidades),
         const SizedBox(height: 20),
         _SeccionDocumentacion(proyectoId: widget.proyectoId, documentos: _controller.documentos),
+        const SizedBox(height: 20),
+        _SeccionTareas(proyectoId: widget.proyectoId, tareas: _controller.tareas),
+        const SizedBox(height: 20),
+        _SeccionIdeas(proyectoId: widget.proyectoId, ideas: _controller.ideas),
       ],
     );
   }
@@ -198,6 +210,128 @@ class _SeccionDocumentacion extends StatelessWidget {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => DocumentoFormScreen(proyectoId: proyectoId, documentoExistente: d)),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SeccionTareas extends StatelessWidget {
+  const _SeccionTareas({required this.proyectoId, required this.tareas});
+
+  final String proyectoId;
+  final List<Tarea>? tareas;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text('Tareas', style: Theme.of(context).textTheme.titleMedium)),
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: 'Añadir tarea',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TareaFormScreen(proyectoId: proyectoId))),
+            ),
+          ],
+        ),
+        if (tareas == null)
+          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+        else if (tareas!.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('Sin tareas todavía.', style: TextStyle(color: colors.textMuted)),
+          )
+        else
+          ...tareas!.map(
+            (t) => Card(
+              child: ListTile(
+                leading: Icon(t.prioridad.icono, color: t.prioridad.color),
+                title: Text(t.titulo),
+                subtitle: Row(
+                  children: [
+                    Icon(t.estado.icono, size: 14, color: t.estado.color),
+                    const SizedBox(width: 4),
+                    Text(t.estado.etiqueta, style: TextStyle(color: t.estado.color)),
+                    if (t.fechaLimite != null) ...[
+                      const SizedBox(width: 10),
+                      Icon(Icons.calendar_today_outlined, size: 13, color: t.vencida ? colors.danger : colors.textMuted),
+                      const SizedBox(width: 3),
+                      Text(
+                        DateFormat('dd/MM/yyyy').format(t.fechaLimite!),
+                        style: TextStyle(color: t.vencida ? colors.danger : colors.textMuted, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+                // Cambiar el estado directamente desde la lista, sin abrir
+                // la ficha completa -- pedido explícito de esta fase.
+                trailing: PopupMenuButton<EstadoTarea>(
+                  tooltip: 'Cambiar estado',
+                  initialValue: t.estado,
+                  onSelected: (nuevoEstado) => TareaService.actualizar(proyectoId, t.id, estado: nuevoEstado),
+                  itemBuilder: (context) => EstadoTarea.values
+                      .map((e) => PopupMenuItem(value: e, child: Text(e.etiqueta)))
+                      .toList(),
+                  child: Icon(Icons.more_vert, color: colors.textMuted),
+                ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => TareaFormScreen(proyectoId: proyectoId, tareaExistente: t)),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SeccionIdeas extends StatelessWidget {
+  const _SeccionIdeas({required this.proyectoId, required this.ideas});
+
+  final String proyectoId;
+  final List<Idea>? ideas;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text('Ideas', style: Theme.of(context).textTheme.titleMedium)),
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: 'Añadir idea',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId))),
+            ),
+          ],
+        ),
+        if (ideas == null)
+          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+        else if (ideas!.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('Sin ideas todavía.', style: TextStyle(color: colors.textMuted)),
+          )
+        else
+          ...ideas!.map(
+            (i) => Card(
+              child: ListTile(
+                leading: Icon(i.estado.icono, color: i.estado.color),
+                title: Text(i.titulo),
+                subtitle: Text(i.estado.etiqueta, style: TextStyle(color: i.estado.color)),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId, ideaExistente: i)),
                 ),
               ),
             ),

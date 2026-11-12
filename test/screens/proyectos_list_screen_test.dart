@@ -4,7 +4,9 @@ import 'package:appsdoc/screens/proyectos/proyecto_form_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyectos_list_screen.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
+import 'package:appsdoc/services/idea_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
+import 'package:appsdoc/services/tarea_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +21,10 @@ void main() {
     FuncionalidadService.debugUidOverride = 'uid-test';
     DocumentoService.debugFirestoreOverride = db;
     DocumentoService.debugUidOverride = 'uid-test';
+    TareaService.debugFirestoreOverride = db;
+    TareaService.debugUidOverride = 'uid-test';
+    IdeaService.debugFirestoreOverride = db;
+    IdeaService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -28,6 +34,10 @@ void main() {
     FuncionalidadService.debugUidOverride = null;
     DocumentoService.debugFirestoreOverride = null;
     DocumentoService.debugUidOverride = null;
+    TareaService.debugFirestoreOverride = null;
+    TareaService.debugUidOverride = null;
+    IdeaService.debugFirestoreOverride = null;
+    IdeaService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);
