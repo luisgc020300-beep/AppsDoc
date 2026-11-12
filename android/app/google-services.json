@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "412526630020",
+    "project_id": "appsdoc-app",
+    "storage_bucket": "appsdoc-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:412526630020:android:15fce7b34214d5c9cbded1",
+        "android_client_info": {
+          "package_name": "com.luisgc.appsdoc.appsdoc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA6H9boEEuQa4yAQIByDFjEaV4ttFKiGEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

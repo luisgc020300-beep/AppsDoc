@@ -1,32 +1,58 @@
 // test/widget_test.dart
+import 'dart:async';
+
+import 'package:appsdoc/app/auth_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:appsdoc/main.dart';
 
 void main() {
-  testWidgets('arranca mostrando la lista de apps con la semilla inicial', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+  group('AuthGate', () {
+    testWidgets('sin sesión (stream emite null) muestra la pantalla de "sin sesión"', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AuthGate<String>(
+            authStateChanges: Stream.value(null),
+            onAutenticado: (_) => const Text('autenticado'),
+            onSinSesion: (_) => const Text('login'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.pumpWidget(const AppsDocApp());
-    await tester.pumpAndSettle();
+      expect(find.text('login'), findsOneWidget);
+      expect(find.text('autenticado'), findsNothing);
+    });
 
-    expect(find.text('AppsDoc'), findsOneWidget);
-    expect(find.text('RiskRunner'), findsOneWidget);
-    expect(find.text('Convive'), findsOneWidget);
-    expect(find.text('REPARA'), findsOneWidget);
-  });
+    testWidgets('con sesión (stream emite un valor no nulo) muestra la pantalla autenticada', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AuthGate<String>(
+            authStateChanges: Stream.value('uid-falso'),
+            onAutenticado: (_) => const Text('autenticado'),
+            onSinSesion: (_) => const Text('login'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-  testWidgets('tocar una app abre su detalle con nombre editable', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+      expect(find.text('autenticado'), findsOneWidget);
+      expect(find.text('login'), findsNothing);
+    });
 
-    await tester.pumpWidget(const AppsDocApp());
-    await tester.pumpAndSettle();
+    testWidgets('mientras el stream no ha emitido nada, muestra un indicador de carga', (tester) async {
+      final controller = StreamController<String?>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AuthGate<String>(
+            authStateChanges: controller.stream,
+            onAutenticado: (_) => const Text('autenticado'),
+            onSinSesion: (_) => const Text('login'),
+          ),
+        ),
+      );
 
-    await tester.tap(find.text('RiskRunner'));
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(TextField, 'RiskRunner'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      await controller.close();
+    });
   });
 }

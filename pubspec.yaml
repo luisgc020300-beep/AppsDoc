@@ -35,9 +35,23 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
-  # Persistencia local simple -- AppsDoc es de un solo usuario en un solo
-  # dispositivo, no hace falta backend.
+  # Backend Firebase -- mismas versiones que RiskRunner/Convive/REPARA.
+  firebase_core: ^4.4.0
+  firebase_auth: ^6.1.4
+  cloud_firestore: ^6.1.2
+  firebase_app_check: ^0.4.3
+  firebase_crashlytics: ^5.0.0
+
+  # Preferencia local de tema (claro/oscuro/sistema) -- nunca para los
+  # datos de proyectos, que viven en Firestore desde esta fase.
   shared_preferences: ^2.3.2
+
+  intl: ^0.20.2
+
+  # Tipografía propia (Space Grotesk + Inter + JetBrains Mono) para el
+  # "diseño moderno y profesional" pedido -- mismo paquete que ya usa
+  # Convive, sin añadir nada nuevo al ecosistema.
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:

@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// AppsDoc -- a diferencia de RiskRunner/Convive/REPARA, aquí nunca hay un
+// segundo actor (nadie más accede a tus datos), así que una sola regla
+// recursiva basta: todo lo que cuelga de usuarios/{uid} es solo de ese uid.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /usuarios/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
