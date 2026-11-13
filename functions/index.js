@@ -367,7 +367,7 @@ ${contexto}
 }
 
 const SYSTEM_EXTRAER =
-  'Vas a recibir el texto de una auditoría o revisión de un proyecto de software, normalmente pegada tal cual desde otra conversación con Claude. Analízalo y usa la herramienta "extraer_auditoria" para devolver: un resumen breve, la lista de hallazgos (con título, descripción y gravedad baja/media/alta/critica) y una lista de tareas accionables derivadas de esos hallazgos. No inventes hallazgos que no estén respaldados por el texto. Responde siempre en español, usando la herramienta -- nunca con texto libre.';
+  'Debes responder SIEMPRE llamando a la herramienta "extraer_auditoria" -- nunca con texto libre, ni para explicar ni para pedir aclaraciones. Vas a recibir el texto de una auditoría o revisión de un proyecto de software, normalmente pegada tal cual desde otra conversación con Claude. Analízalo y usa la herramienta "extraer_auditoria" para devolver: un resumen breve, la lista de hallazgos (con título, descripción y gravedad baja/media/alta/critica) y una lista de tareas accionables derivadas de esos hallazgos. No inventes hallazgos que no estén respaldados por el texto. Responde siempre en español, usando la herramienta -- nunca con texto libre.';
 
 // ---------------------------------------------------------------------------
 // Callables
@@ -414,15 +414,18 @@ exports.extraerAuditoria = onCall({ region: REGION, secrets: [_anthropicKey] }, 
   const apiKey = _anthropicKey.value();
   if (!apiKey) throw new HttpsError('internal', 'API key no configurada en el servidor.');
 
-  // Sin "thinking": la API de Anthropic no admite tool_choice forzado
-  // junto con thinking activado, y aquí interesa forzar la herramienta
-  // para garantizar una extracción estructurada, no texto libre.
+  // tool_choice "auto", no forzado ("tool"/"any"): la API de Anthropic
+  // rechaza con 400 el tool_choice forzado en los modelos actuales
+  // ("tool_choice: type \"tool\" and \"any\" are not supported for this
+  // model"). La estructura se garantiza con una instrucción explícita en
+  // el system prompt; _parsearPropuestaExtraida ya lanza "internal" si la
+  // respuesta no trae el bloque de la herramienta.
   const data = await _llamarAnthropic(apiKey, {
     model: MODELO,
     max_tokens: 2048,
     system: SYSTEM_EXTRAER,
     tools: [HERRAMIENTA_EXTRAER_AUDITORIA],
-    tool_choice: { type: 'tool', name: 'extraer_auditoria' },
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: texto }],
   });
 
@@ -928,6 +931,7 @@ const SYSTEM_ANALISIS_REPOSITORIO = `Eres un auditor técnico senior analizando 
 Recibes el árbol de archivos del repositorio y el contenido de los más relevantes -- puede que no sea el repositorio completo si es muy grande; analiza solo con lo que tienes, sin asumir que has visto más.
 
 REGLAS ESTRICTAS:
+- Debes responder SIEMPRE llamando a la herramienta "registrar_analisis_repositorio" -- nunca con texto libre, ni para explicar ni para pedir aclaraciones.
 - NUNCA marques una funcionalidad como "completada" solo porque exista código relacionado o un esqueleto/placeholder. Solo márcala así cuando la evidencia sea clara e inequívoca (implementación real, sin TODOs ni stubs pendientes). Ante la duda, usa "enProgreso" o "planificada" y confianza "baja" o "media".
 - No propongas ninguna funcionalidad, documento ni tarea que ya aparezca en las listas de "ya registrado" -- revísalas antes de proponer nada.
 - Basa cada hallazgo y cada funcionalidad detectada en evidencia concreta del código que has visto; cita el archivo relevante en el campo de evidencia.
@@ -996,12 +1000,15 @@ exports.analizarRepositorio = onCall(
     const apiKey = _anthropicKey.value();
     if (!apiKey) throw new HttpsError('internal', 'API key no configurada en el servidor.');
 
+    // tool_choice "auto", no forzado: ver el comentario equivalente en
+    // extraerAuditoria -- los modelos actuales rechazan con 400 el
+    // tool_choice forzado ("tool"/"any").
     const data = await _llamarAnthropic(apiKey, {
       model: MODELO,
       max_tokens: 4096,
       system: SYSTEM_ANALISIS_REPOSITORIO,
       tools: [HERRAMIENTA_ANALISIS_REPOSITORIO],
-      tool_choice: { type: 'tool', name: 'registrar_analisis_repositorio' },
+      tool_choice: { type: 'auto' },
       messages: [{ role: 'user', content: prompt }],
     });
 
