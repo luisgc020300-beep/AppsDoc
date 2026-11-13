@@ -1,10 +1,13 @@
 // lib/screens/expediente/expediente_revision_screen.dart
 //
-// Generar -> revisar -> confirmar, igual criterio que
-// AnalisisRepositorioScreen (Fase 9): la IA solo propone un borrador
-// completo; nada queda como versión vigente del proyecto hasta que el
-// usuario lo revisa y pulsa "Confirmar expediente". Si algo no convence,
-// "Descartar y repetir" borra el borrador sin dejar rastro.
+// Esta pantalla ES "Analizar con IA" desde la reorganización de pestañas
+// post-Fase-10 -- antes convivía con AnalisisRepositorioScreen (Fase 9),
+// que dejó de usarse desde ProyectoDetailScreen para no tener dos
+// operaciones de IA distintas y confusas entre sí. Generar -> revisar ->
+// confirmar: la IA solo propone un borrador completo; nada queda como
+// versión vigente del proyecto hasta que el usuario lo revisa y pulsa
+// "Confirmar expediente". Si algo no convence, "Descartar y repetir" borra
+// el borrador sin dejar rastro.
 import 'package:flutter/material.dart';
 
 import '../../models/expediente.dart';
@@ -87,7 +90,7 @@ class _ExpedienteRevisionScreenState extends State<ExpedienteRevisionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Expediente del proyecto')),
+      appBar: AppBar(title: const Text('Analizar con IA')),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),

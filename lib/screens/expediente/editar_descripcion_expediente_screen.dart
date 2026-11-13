@@ -76,7 +76,7 @@ class _EditarDescripcionExpedienteScreenState extends State<EditarDescripcionExp
               const SizedBox(height: 16),
               TextFormField(
                 controller: _propuestaValorCtrl,
-                decoration: const InputDecoration(labelText: 'Propuesta de valor'),
+                decoration: const InputDecoration(labelText: 'Cómo funciona'),
                 maxLines: 3,
               ),
               const SizedBox(height: 16),

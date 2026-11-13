@@ -3,7 +3,9 @@ import 'package:appsdoc/screens/proyectos/proyecto_detail_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyecto_form_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyectos_list_screen.dart';
 import 'package:appsdoc/services/auditoria_service.dart';
+import 'package:appsdoc/services/captura_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
+import 'package:appsdoc/services/expediente_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
@@ -31,6 +33,10 @@ void main() {
     AuditoriaService.debugUidOverride = 'uid-test';
     HistorialService.debugFirestoreOverride = db;
     HistorialService.debugUidOverride = 'uid-test';
+    ExpedienteService.debugFirestoreOverride = db;
+    ExpedienteService.debugUidOverride = 'uid-test';
+    CapturaService.debugFirestoreOverride = db;
+    CapturaService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -48,6 +54,10 @@ void main() {
     AuditoriaService.debugUidOverride = null;
     HistorialService.debugFirestoreOverride = null;
     HistorialService.debugUidOverride = null;
+    ExpedienteService.debugFirestoreOverride = null;
+    ExpedienteService.debugUidOverride = null;
+    CapturaService.debugFirestoreOverride = null;
+    CapturaService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);
@@ -92,7 +102,7 @@ void main() {
     expect(find.byType(ProyectoDetailScreen), findsOneWidget);
     expect(find.text('Piso compartido'), findsOneWidget);
     expect(find.text('Funcionalidades'), findsOneWidget);
-    expect(find.text('Documentación'), findsOneWidget);
+    expect(find.text('Documentos'), findsOneWidget);
   });
 
   testWidgets('eliminar con confirmación desde el detalle hace que el proyecto desaparezca de la lista', (tester) async {

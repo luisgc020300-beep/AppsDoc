@@ -1281,7 +1281,11 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
             type: 'string',
             description: 'En lenguaje cotidiano, para alguien que nunca ha visto la app: qué es y para qué sirve, como se lo explicarías a un amigo.',
           },
-          propuestaValor: { type: 'string' },
+          propuestaValor: {
+            type: 'string',
+            description:
+              'Cómo funciona la aplicación, explicado a un futuro usuario que se la vas a presentar por primera vez: qué puede hacer, cómo se usa, paso a paso, en tono cercano y agradable de leer. NO es una propuesta de valor de negocio ni un argumento de venta -- es una presentación funcional.',
+          },
           publicoObjetivo: { type: 'string' },
           estadoMadurez: { type: 'string', description: 'p.ej. "prototipo", "en desarrollo activo", "listo para producción".' },
         },
@@ -1331,6 +1335,19 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
           required: ['nombre', 'confianza', 'evidencia'],
         },
       },
+      posibilidadesFuturas: {
+        type: 'array',
+        description:
+          'Entre 3 y 6 posibilidades razonables que la app TODAVÍA NO tiene implementadas, a partir de lo que ya existe (huecos obvios, extensiones naturales) -- nunca mezcladas con catalogoFuncionalidades. Breve a propósito: solo nombre y una frase, nunca evidencia de código (no la hay, es especulación).',
+        items: {
+          type: 'object',
+          properties: {
+            nombre: { type: 'string', description: 'Una posibilidad futura en lenguaje cotidiano, p.ej. "Recordatorios automáticos por email".' },
+            descripcion: { type: 'string', description: 'Una frase: qué ganaría la persona usuaria con esto.' },
+          },
+          required: ['nombre'],
+        },
+      },
       arquitectura: {
         type: 'object',
         properties: {
@@ -1363,6 +1380,8 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
           nivelConfianza: { type: 'string', enum: NIVELES_CONFIANZA_VALORACION_VALIDOS },
         },
         required: ['conservador', 'intermedio', 'optimista', 'supuestos', 'limitaciones', 'nivelConfianza'],
+        description:
+          'El razonamiento de cada escenario debe cubrir también posibles modelos de monetización y oportunidades comerciales, no solo las tres cifras.',
       },
       potencialUsuarios: {
         type: 'object',
@@ -1370,7 +1389,10 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
           conservador: ESCENARIO_USUARIOS_ITEM,
           intermedio: ESCENARIO_USUARIOS_ITEM,
           optimista: ESCENARIO_USUARIOS_ITEM,
-          segmentoObjetivo: { type: 'string' },
+          segmentoObjetivo: {
+            type: 'string',
+            description: 'Tipos de cliente/usuario posibles y qué necesidad concreta les cubre la app -- no solo una etiqueta demográfica.',
+          },
           supuestos: { type: 'array', items: { type: 'string' } },
           limitaciones: { type: 'string' },
           nivelConfianza: { type: 'string', enum: NIVELES_CONFIANZA_VALORACION_VALIDOS },
@@ -1386,6 +1408,7 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
       'descripcionGeneral',
       'pantallas',
       'catalogoFuncionalidades',
+      'posibilidadesFuturas',
       'arquitectura',
       'calidad',
       'seguridad',
@@ -1407,7 +1430,7 @@ REGLAS ESTRICTAS:
 - Seguridad: distingue problemas confirmados de riesgos potenciales. Nunca afirmes que la aplicación es segura solo porque no detectaste problemas -- dilo explícitamente como limitación si es el caso.
 - Valoración económica y potencial de usuarios son estimaciones razonadas a partir de lo que ves (complejidad, tecnologías, alcance) y tu conocimiento general de mercado -- NUNCA inventes clientes, usuarios, ventas o demanda reales. Cada escenario (conservador/intermedio/optimista) lleva su propio razonamiento. "supuestos" y "limitaciones" son obligatorios y deben ser honestos sobre qué información falta. Usa "nivelConfianza" baja si hay poca información -- no la infles.
 - No multipliques mecánicamente el valor por el porcentaje de progreso -- "analisisProgresoValor" es una explicación cualitativa, no una fórmula.
-- No propongas ninguna funcionalidad nueva, documento, tarea ni idea -- esto es un expediente documental, no una propuesta de trabajo.
+- No propongas ninguna funcionalidad nueva, documento, tarea ni idea para añadir a la app -- esto es un expediente documental, no una propuesta de trabajo. La ÚNICA excepción es "posibilidadesFuturas": una lista breve y claramente especulativa de huecos obvios o extensiones naturales de lo que ya existe, nunca mezclada con "catalogoFuncionalidades" (que es solo lo que el código ya demuestra) ni presentada como si estuviera construida o planificada.
 - Responde siempre en español.`;
 
 /// Pura: prompt de síntesis -- recibe los resúmenes condensados de cada
@@ -1508,6 +1531,12 @@ function _parsearExpediente(contentBlocks, { progresoPorcentaje = 0 } = {}) {
         }))
     : [];
 
+  const posibilidadesFuturas = Array.isArray(input.posibilidadesFuturas)
+    ? input.posibilidadesFuturas
+        .filter((p) => p && typeof p.nombre === 'string' && p.nombre.trim() !== '')
+        .map((p) => ({ nombre: p.nombre.trim(), descripcion: texto(p.descripcion) }))
+    : [];
+
   const a = input.arquitectura || {};
   const arquitectura = { resumen: texto(a.resumen), patrones: lista(a.patrones), tecnologias: lista(a.tecnologias) };
 
@@ -1570,6 +1599,7 @@ function _parsearExpediente(contentBlocks, { progresoPorcentaje = 0 } = {}) {
     descripcionGeneral,
     pantallas,
     catalogoFuncionalidades,
+    posibilidadesFuturas,
     arquitectura,
     calidad,
     seguridad,

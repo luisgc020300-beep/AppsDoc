@@ -247,6 +247,7 @@ function expedienteCanon(overrides = {}) {
     catalogoFuncionalidades: [
       { nombre: 'Login', descripcion: 'Email y contraseña', confianza: 'verificada', evidencia: 'lib/screens/auth/login_screen.dart', archivosRelacionados: [] },
     ],
+    posibilidadesFuturas: [{ nombre: 'Recordatorios automáticos por email', descripcion: 'Avisar antes de que venza una tarea.' }],
     arquitectura: { resumen: 'Flutter + Firebase.', patrones: ['Servicios estáticos'], tecnologias: ['Flutter', 'Firebase'] },
     calidad: { resumen: 'Código razonablemente organizado.', hallazgos: [{ titulo: 'Duplicidad en X', descripcion: '', gravedad: 'media', evidencia: 'lib/x.dart' }] },
     seguridad: { resumen: 'Sin problemas confirmados; no se auditó exhaustivamente.', hallazgos: [] },
@@ -279,6 +280,8 @@ test('_parsearExpediente extrae todas las secciones', () => {
   assert.equal(r.pantallas.length, 1);
   assert.equal(r.catalogoFuncionalidades.length, 1);
   assert.equal(r.catalogoFuncionalidades[0].confianza, 'verificada');
+  assert.equal(r.posibilidadesFuturas.length, 1);
+  assert.equal(r.posibilidadesFuturas[0].nombre, 'Recordatorios automáticos por email');
   assert.equal(r.arquitectura.tecnologias.length, 2);
   assert.equal(r.calidad.hallazgos.length, 1);
   assert.equal(r.seguridad.hallazgos.length, 0);
@@ -290,6 +293,30 @@ test('_parsearExpediente extrae todas las secciones', () => {
   // la IA lo repita correctamente -- viene del segundo argumento, no de `input`.
   assert.equal(r.progresoValor.progresoPorcentajeLeido, 45);
   assert.match(r.progresoValor.analisisTexto, /El progreso es moderado/);
+});
+
+test('_parsearExpediente: posibilidadesFuturas ausente o inválida cae a lista vacía, nunca lanza', () => {
+  const sinCampo = _parsearExpediente(bloqueExpediente({ ...expedienteCanon(), posibilidadesFuturas: undefined }));
+  assert.deepEqual(sinCampo.posibilidadesFuturas, []);
+
+  const invalida = _parsearExpediente(bloqueExpediente({ ...expedienteCanon(), posibilidadesFuturas: 'no es una lista' }));
+  assert.deepEqual(invalida.posibilidadesFuturas, []);
+
+  const conItemSinNombre = _parsearExpediente(
+    bloqueExpediente({ ...expedienteCanon(), posibilidadesFuturas: [{ descripcion: 'sin nombre, se descarta' }] }),
+  );
+  assert.deepEqual(conItemSinNombre.posibilidadesFuturas, []);
+});
+
+test('_parsearExpediente: posibilidadesFuturas queda siempre en su propia lista, nunca mezclada con catalogoFuncionalidades', () => {
+  const r = _parsearExpediente(bloqueExpediente(expedienteCanon()));
+  assert.equal(r.catalogoFuncionalidades.length, 1);
+  assert.equal(r.catalogoFuncionalidades[0].nombre, 'Login');
+  assert.equal(r.posibilidadesFuturas.length, 1);
+  assert.equal(r.posibilidadesFuturas[0].nombre, 'Recordatorios automáticos por email');
+  // Las posibilidades futuras no tienen campo "confianza" -- nunca deben
+  // acabar clasificadas como una funcionalidad ya detectada.
+  assert.equal(r.posibilidadesFuturas[0].confianza, undefined);
 });
 
 test('_parsearExpediente clampa una confianza de funcionalidad desconocida a "pendiente"', () => {

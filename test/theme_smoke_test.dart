@@ -13,7 +13,9 @@ import 'package:appsdoc/screens/auth/login_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyecto_detail_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyectos_list_screen.dart';
 import 'package:appsdoc/services/auditoria_service.dart';
+import 'package:appsdoc/services/captura_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
+import 'package:appsdoc/services/expediente_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
@@ -41,6 +43,10 @@ void main() {
     AuditoriaService.debugUidOverride = 'uid-test';
     HistorialService.debugFirestoreOverride = db;
     HistorialService.debugUidOverride = 'uid-test';
+    ExpedienteService.debugFirestoreOverride = db;
+    ExpedienteService.debugUidOverride = 'uid-test';
+    CapturaService.debugFirestoreOverride = db;
+    CapturaService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -58,6 +64,10 @@ void main() {
     AuditoriaService.debugUidOverride = null;
     HistorialService.debugFirestoreOverride = null;
     HistorialService.debugUidOverride = null;
+    ExpedienteService.debugFirestoreOverride = null;
+    ExpedienteService.debugUidOverride = null;
+    CapturaService.debugFirestoreOverride = null;
+    CapturaService.debugUidOverride = null;
   });
 
   for (final tema in [
@@ -97,7 +107,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
-      for (final etiqueta in ['Funcionalidades', 'Documentación', 'Tareas', 'Ideas', 'Auditorías', 'Historial']) {
+      for (final etiqueta in ['Funcionalidades', 'Ideas', 'Documentos', 'Pantallas', 'Potencial']) {
         final tab = find.widgetWithText(Tab, etiqueta);
         await tester.ensureVisible(tab);
         await tester.pumpAndSettle();

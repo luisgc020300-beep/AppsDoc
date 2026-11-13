@@ -104,7 +104,7 @@ void main() {
     await tester.pumpWidget(envolver(const GaleriaCapturasScreen(proyectoId: proyectoId, pantallas: [])));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('Añadir captura'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('no tiene pantallas detectadas'), findsOneWidget);

@@ -1,55 +1,53 @@
 // lib/screens/proyectos/proyecto_detail_screen.dart
 //
-// Fase 8: siete secciones (Resumen, Funcionalidades, Documentación,
-// Tareas, Ideas, Auditorías, Historial) ya no se amontonan en una sola
-// lista vertical interminable -- cada una vive en su propia pestaña de un
-// TabBar desplazable, bajo la misma AppBar. Resumen agrupa la ficha básica
-// del proyecto, el repositorio de GitHub y el desglose de progreso.
+// Reorganización post-Fase-10: 5 pestañas (Funcionalidades, Ideas,
+// Documentos, Pantallas, Potencial) en vez de las 8 de la Fase 8, y una
+// única operación de IA ("Analizar con IA", que ahora abre
+// ExpedienteRevisionScreen) en vez de dos flujos distintos y confusos
+// entre sí (el AnalisisRepositorioScreen de la Fase 9 dejó de enlazarse
+// desde aquí, aunque sigue existiendo en el repo). La ficha básica del
+// proyecto, el repositorio de GitHub y el desglose de progreso ya no son
+// una pestaña propia ("Resumen") -- viven en una cabecera fija, visible
+// en las 5 pestañas, justo debajo del TabBar.
+//
+// Tareas/Ideas (manuales)/Historial pierden su pestaña: sus
+// modelos/servicios siguen intactos (ProgresoService sigue usando
+// Tarea), solo dejan de tener una pantalla de gestión propia. Las
+// auditorías manuales/pegadas desde el chat SÍ se conservan -- se
+// muestran dentro de "Documentos", junto a la auditoría generada por IA.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../controllers/proyecto_detail_controller.dart';
 import '../../models/auditoria.dart';
 import '../../models/documento.dart';
-import '../../models/estado_tarea.dart';
-import '../../models/evento_historial.dart';
 import '../../models/expediente.dart';
 import '../../models/funcionalidad.dart';
 import '../../models/github_repo_info.dart';
-import '../../models/idea.dart';
 import '../../models/proyecto.dart';
 import '../../models/tarea.dart';
+import '../../services/expediente_service.dart';
 import '../../services/github_service.dart';
 import '../../services/progreso_service.dart';
 import '../../services/proyecto_service.dart';
-import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
 import '../../widgets/estado_badge.dart';
 import '../../widgets/expediente/expediente_detalle_widget.dart';
 import '../../widgets/seccion_header.dart';
-import '../../services/expediente_service.dart';
-import '../analisis/analisis_repositorio_screen.dart';
 import '../asistente/asistente_screen.dart';
 import '../auditorias/auditoria_form_screen.dart';
-import '../documentacion/documento_form_screen.dart';
 import '../expediente/editar_descripcion_expediente_screen.dart';
 import '../expediente/expediente_revision_screen.dart';
 import '../expediente/expediente_versiones_screen.dart';
 import '../expediente/galeria_capturas_screen.dart';
-import '../funcionalidades/funcionalidad_form_screen.dart';
-import '../ideas/idea_form_screen.dart';
-import '../tareas/tarea_form_screen.dart';
 import 'proyecto_form_screen.dart';
 
 const _tabs = [
-  Tab(text: 'Resumen'),
   Tab(text: 'Funcionalidades'),
-  Tab(text: 'Documentación'),
-  Tab(text: 'Tareas'),
   Tab(text: 'Ideas'),
-  Tab(text: 'Auditorías'),
-  Tab(text: 'Historial'),
-  Tab(text: 'Expediente'),
+  Tab(text: 'Documentos'),
+  Tab(text: 'Pantallas'),
+  Tab(text: 'Potencial'),
 ];
 
 class ProyectoDetailScreen extends StatefulWidget {
@@ -122,22 +120,54 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
         child: Text('Este proyecto ya no existe.', style: TextStyle(color: colors.textMuted)),
       );
     }
-    return TabBarView(
-      children: [
-        _TabResumen(
-          proyecto: proyecto,
-          funcionalidades: _controller.funcionalidades,
-          tareas: _controller.tareas,
-          documentos: _controller.documentos,
-          auditorias: _controller.auditorias,
+    // CustomScrollView en vez de un Column con Expanded: así, si la
+    // cabecera (ficha + GitHub + progreso) no cupiera entera en pantallas
+    // muy pequeñas, la página entera se desplaza en vez de desbordar -- un
+    // Column fijo no tiene ese margen de seguridad.
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: _CabeceraProyecto(
+              proyecto: proyecto,
+              funcionalidades: _controller.funcionalidades,
+              tareas: _controller.tareas,
+              documentos: _controller.documentos,
+              auditorias: _controller.auditorias,
+            ),
+          ),
         ),
-        _contenedorTab(_SeccionFuncionalidades(proyectoId: widget.proyectoId, funcionalidades: _controller.funcionalidades)),
-        _contenedorTab(_SeccionDocumentacion(proyectoId: widget.proyectoId, documentos: _controller.documentos)),
-        _contenedorTab(_SeccionTareas(proyectoId: widget.proyectoId, tareas: _controller.tareas)),
-        _contenedorTab(_SeccionIdeas(proyectoId: widget.proyectoId, ideas: _controller.ideas)),
-        _contenedorTab(_SeccionAuditorias(proyectoId: widget.proyectoId, auditorias: _controller.auditorias)),
-        _contenedorTab(_SeccionHistorial(historial: _controller.historial)),
-        _contenedorTab(_SeccionExpediente(proyecto: proyecto)),
+        SliverFillRemaining(
+          hasScrollBody: true,
+          child: TabBarView(
+            children: [
+              StreamBuilder<Expediente?>(
+                stream: ExpedienteService.streamActualConfirmado(widget.proyectoId),
+                builder: (context, snapshot) =>
+                    _contenedorTab(_TabFuncionalidades(proyecto: proyecto, expediente: snapshot.data)),
+              ),
+              StreamBuilder<Expediente?>(
+                stream: ExpedienteService.streamActualConfirmado(widget.proyectoId),
+                builder: (context, snapshot) => _contenedorTab(_TabIdeas(proyecto: proyecto, expediente: snapshot.data)),
+              ),
+              StreamBuilder<Expediente?>(
+                stream: ExpedienteService.streamActualConfirmado(widget.proyectoId),
+                builder: (context, snapshot) => _contenedorTab(
+                  _TabDocumentos(proyecto: proyecto, expediente: snapshot.data, auditorias: _controller.auditorias),
+                ),
+              ),
+              StreamBuilder<Expediente?>(
+                stream: ExpedienteService.streamActualConfirmado(widget.proyectoId),
+                builder: (context, snapshot) => _contenedorTab(_TabPantallas(proyecto: proyecto, expediente: snapshot.data)),
+              ),
+              StreamBuilder<Expediente?>(
+                stream: ExpedienteService.streamActualConfirmado(widget.proyectoId),
+                builder: (context, snapshot) => _contenedorTab(_TabPotencial(proyecto: proyecto, expediente: snapshot.data)),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -145,11 +175,12 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
   Widget _contenedorTab(Widget seccion) => ListView(padding: const EdgeInsets.all(16), children: [seccion]);
 }
 
-/// Identidad del proyecto, repositorio de GitHub y desglose de progreso --
-/// las tres cosas que antes encabezaban la lista interminable, ahora
-/// agrupadas en la primera pestaña.
-class _TabResumen extends StatelessWidget {
-  const _TabResumen({
+/// Ficha básica + repositorio de GitHub + desglose de progreso -- antes era
+/// la pestaña "Resumen" (Fase 8), ahora una cabecera fija visible en las 5
+/// pestañas nuevas. Ni el contenido ni la lógica cambian, solo su lugar en
+/// la pantalla.
+class _CabeceraProyecto extends StatelessWidget {
+  const _CabeceraProyecto({
     required this.proyecto,
     required this.funcionalidades,
     required this.tareas,
@@ -166,8 +197,7 @@ class _TabResumen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: [
         Card(
           child: Padding(
@@ -209,6 +239,7 @@ class _TabResumen extends StatelessWidget {
         _SeccionGithub(proyecto: proyecto),
         const SizedBox(height: 16),
         _SeccionProgreso(funcionalidades: funcionalidades, tareas: tareas, documentos: documentos, auditorias: auditorias),
+        const SizedBox(height: 16),
       ],
     );
   }
@@ -237,6 +268,9 @@ class _InfoGeneral extends StatelessWidget {
 /// Repositorio vinculado -- indicador independiente (repoConectado) y
 /// resumen en vivo vía GithubService (solo lectura, sin token). Nunca
 /// suma puntos a ProgresoService, ver arquitectura aprobada de la Fase 5.
+/// "Analizar con IA" abre ExpedienteRevisionScreen (Fase 10) -- es la
+/// única operación de análisis desde la reorganización de pestañas, en vez
+/// de convivir con el AnalisisRepositorioScreen de la Fase 9.
 class _SeccionGithub extends StatefulWidget {
   const _SeccionGithub({required this.proyecto});
 
@@ -412,9 +446,9 @@ class _SeccionGithubState extends State<_SeccionGithub> {
               FilledButton.tonalIcon(
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => AnalisisRepositorioScreen(proyecto: proyecto)),
+                  MaterialPageRoute(builder: (_) => ExpedienteRevisionScreen(proyecto: proyecto)),
                 ),
-                icon: const Icon(Icons.travel_explore),
+                icon: const Icon(Icons.auto_awesome),
                 label: const Text('Analizar con IA'),
               ),
               const SizedBox(height: 10),
@@ -553,219 +587,216 @@ class _SeccionProgreso extends StatelessWidget {
   }
 }
 
-class _SeccionFuncionalidades extends StatelessWidget {
-  const _SeccionFuncionalidades({required this.proyectoId, required this.funcionalidades});
+/// Mensaje + CTA comunes a las 5 pestañas cuando todavía no hay un
+/// expediente confirmado que mostrar (sin repo vinculado, o repo vinculado
+/// pero sin analizar todavía).
+class _EstadoVacioExpediente extends StatelessWidget {
+  const _EstadoVacioExpediente({required this.proyecto});
 
-  final String proyectoId;
-  final List<Funcionalidad>? funcionalidades;
+  final Proyecto proyecto;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    if (!proyecto.repoConectado) {
+      return Text(
+        'Vincula un repositorio de GitHub arriba para poder analizar esta aplicación.',
+        style: TextStyle(color: colors.textMuted),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            tooltip: 'Añadir funcionalidad',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => FuncionalidadFormScreen(proyectoId: proyectoId)),
-            ),
-          ),
+        Text(
+          'Todavía no se ha analizado esta aplicación con IA. Analízala para ver su descripción, funcionalidades, '
+          'ideas, documentación, pantallas y potencial.',
+          style: TextStyle(color: colors.textMuted),
         ),
-        if (funcionalidades == null)
-          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
-        else if (funcionalidades!.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Sin funcionalidades todavía.', style: TextStyle(color: colors.textMuted)),
-          )
-        else
-          ...funcionalidades!.map(
-            (f) => Card(
-              margin: const EdgeInsets.only(top: 10),
-              child: ListTile(
-                leading: Icon(f.estado.icono, color: f.estado.color),
-                title: Text(f.nombre),
-                subtitle: EstadoBadge(icono: f.estado.icono, etiqueta: f.estado.etiqueta, color: f.estado.color, compacto: true),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => FuncionalidadFormScreen(proyectoId: proyectoId, funcionalidadExistente: f)),
-                ),
-              ),
-            ),
-          ),
+        const SizedBox(height: 12),
+        FilledButton.tonalIcon(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteRevisionScreen(proyecto: proyecto))),
+          icon: const Icon(Icons.auto_awesome),
+          label: const Text('Analizar con IA'),
+        ),
       ],
     );
   }
 }
 
-class _SeccionDocumentacion extends StatelessWidget {
-  const _SeccionDocumentacion({required this.proyectoId, required this.documentos});
+/// A. FUNCIONALIDADES -- introducción de la app + cómo funciona (en
+/// lenguaje cotidiano, dirigido a un futuro usuario, no una ficha técnica).
+class _TabFuncionalidades extends StatelessWidget {
+  const _TabFuncionalidades({required this.proyecto, required this.expediente});
 
-  final String proyectoId;
-  final List<Documento>? documentos;
+  final Proyecto proyecto;
+  final Expediente? expediente;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            tooltip: 'Añadir documento',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => DocumentoFormScreen(proyectoId: proyectoId)),
-            ),
-          ),
-        ),
-        if (documentos == null)
-          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
-        else if (documentos!.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Sin documentos todavía.', style: TextStyle(color: colors.textMuted)),
-          )
-        else
-          ...documentos!.map(
-            (d) => Card(
-              margin: const EdgeInsets.only(top: 10),
-              child: ListTile(
-                leading: Icon(d.categoria.icono, color: d.categoria.color),
-                title: Text(d.titulo),
-                subtitle: EstadoBadge(icono: d.categoria.icono, etiqueta: d.categoria.etiqueta, color: d.categoria.color, compacto: true),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => DocumentoFormScreen(proyectoId: proyectoId, documentoExistente: d)),
-                ),
+    final e = expediente;
+    if (e == null) return _EstadoVacioExpediente(proyecto: proyecto);
+    return ExpedienteSeccionCard(
+      titulo: 'Qué es y cómo funciona',
+      icono: Icons.auto_awesome_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DescripcionGeneralSeccion(d: e.descripcionGeneral, soloIntroduccion: true),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => EditarDescripcionExpedienteScreen(proyectoId: proyecto.id, expediente: e)),
               ),
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              label: const Text('Corregir'),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// B. IDEAS -- qué cosas puedes hacer ya (catálogo coloquial) y qué
+/// posibilidades futuras, claramente separadas.
+class _TabIdeas extends StatelessWidget {
+  const _TabIdeas({required this.proyecto, required this.expediente});
+
+  final Proyecto proyecto;
+  final Expediente? expediente;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = expediente;
+    if (e == null) return _EstadoVacioExpediente(proyecto: proyecto);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ExpedienteSeccionCard(
+          titulo: 'Qué puedes hacer ya (${e.catalogoFuncionalidades.length})',
+          icono: Icons.checklist_outlined,
+          child: CatalogoFuncionalidadesSeccion(funcionalidades: e.catalogoFuncionalidades),
+        ),
+        ExpedienteSeccionCard(
+          titulo: 'Posibilidades futuras (${e.posibilidadesFuturas.length})',
+          icono: Icons.lightbulb_outline,
+          child: PosibilidadesFuturasSeccion(posibilidades: e.posibilidadesFuturas),
+        ),
       ],
     );
   }
 }
 
-class _SeccionTareas extends StatelessWidget {
-  const _SeccionTareas({required this.proyectoId, required this.tareas});
+/// C. DOCUMENTOS -- la auditoría completa generada por IA (arquitectura,
+/// calidad, seguridad, progreso y valor) y, debajo, el historial de
+/// auditorías manuales/pegadas desde el chat (se conservan, solo cambian
+/// de sitio).
+class _TabDocumentos extends StatelessWidget {
+  const _TabDocumentos({required this.proyecto, required this.expediente, required this.auditorias});
 
-  final String proyectoId;
-  final List<Tarea>? tareas;
+  final Proyecto proyecto;
+  final Expediente? expediente;
+  final List<Auditoria>? auditorias;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final e = expediente;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            tooltip: 'Añadir tarea',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TareaFormScreen(proyectoId: proyectoId))),
+        if (e == null)
+          _EstadoVacioExpediente(proyecto: proyecto)
+        else ...[
+          MetaGeneracionAviso(expediente: e),
+          const SizedBox(height: 12),
+          ExpedienteSeccionCard(titulo: 'Arquitectura', icono: Icons.architecture_outlined, child: ArquitecturaSeccion(a: e.arquitectura)),
+          ExpedienteSeccionCard(
+            titulo: 'Calidad del código',
+            icono: Icons.verified_outlined,
+            child: HallazgosSeccion(resumen: e.calidad.resumen, hallazgos: e.calidad.hallazgos),
           ),
-        ),
-        if (tareas == null)
-          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
-        else if (tareas!.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Sin tareas todavía.', style: TextStyle(color: colors.textMuted)),
-          )
-        else
-          ...tareas!.map(
-            (t) => Card(
-              margin: const EdgeInsets.only(top: 10),
-              child: ListTile(
-                leading: Icon(t.prioridad.icono, color: t.prioridad.color),
-                title: Text(t.titulo),
-                subtitle: Row(
-                  children: [
-                    EstadoBadge(icono: t.estado.icono, etiqueta: t.estado.etiqueta, color: t.estado.color, compacto: true),
-                    if (t.fechaLimite != null) ...[
-                      const SizedBox(width: 10),
-                      Icon(Icons.calendar_today_outlined, size: 13, color: t.vencida ? colors.danger : colors.textMuted),
-                      const SizedBox(width: 3),
-                      Text(
-                        DateFormat('dd/MM/yyyy').format(t.fechaLimite!),
-                        style: TextStyle(color: t.vencida ? colors.danger : colors.textMuted, fontSize: 12),
-                      ),
-                    ],
-                  ],
-                ),
-                // Cambiar el estado directamente desde la lista, sin abrir
-                // la ficha completa -- pedido explícito de esta fase.
-                trailing: PopupMenuButton<EstadoTarea>(
-                  tooltip: 'Cambiar estado',
-                  initialValue: t.estado,
-                  onSelected: (nuevoEstado) => TareaService.actualizar(proyectoId, t.id, estado: nuevoEstado),
-                  itemBuilder: (context) => EstadoTarea.values
-                      .map((e) => PopupMenuItem(value: e, child: Text(e.etiqueta)))
-                      .toList(),
-                  child: Icon(Icons.more_vert, color: colors.textMuted),
-                ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => TareaFormScreen(proyectoId: proyectoId, tareaExistente: t)),
-                ),
-              ),
-            ),
+          ExpedienteSeccionCard(
+            titulo: 'Seguridad',
+            icono: Icons.shield_outlined,
+            child: HallazgosSeccion(resumen: e.seguridad.resumen, hallazgos: e.seguridad.hallazgos),
           ),
+          ExpedienteSeccionCard(titulo: 'Progreso y valor', icono: Icons.insights_outlined, child: ProgresoValorSeccion(p: e.progresoValor)),
+        ],
+        const SizedBox(height: 8),
+        _SeccionAuditorias(proyectoId: proyecto.id, auditorias: auditorias),
       ],
     );
   }
 }
 
-class _SeccionIdeas extends StatelessWidget {
-  const _SeccionIdeas({required this.proyectoId, required this.ideas});
+/// D. PANTALLAS -- qué pantallas se detectaron y la galería de capturas
+/// manuales (Fase 10, reutilizada tal cual, solo embebida sin su propio
+/// Scaffold).
+class _TabPantallas extends StatelessWidget {
+  const _TabPantallas({required this.proyecto, required this.expediente});
 
-  final String proyectoId;
-  final List<Idea>? ideas;
+  final Proyecto proyecto;
+  final Expediente? expediente;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final e = expediente;
+    if (e == null) return _EstadoVacioExpediente(proyecto: proyecto);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        ExpedienteSeccionCard(
+          titulo: 'Pantallas detectadas (${e.pantallas.length})',
+          icono: Icons.dashboard_outlined,
+          child: ListaPantallasSeccion(pantallas: e.pantallas),
+        ),
+        ExpedienteSeccionCard(
+          titulo: 'Capturas',
+          icono: Icons.photo_library_outlined,
+          child: GaleriaCapturasWidget(proyectoId: proyecto.id, pantallas: e.pantallas),
+        ),
+      ],
+    );
+  }
+}
+
+/// E. POTENCIAL -- valoración económica y potencial de usuarios, ya en el
+/// formato de 3 escenarios + supuestos/limitaciones/confianza que pedía el
+/// CEO.
+class _TabPotencial extends StatelessWidget {
+  const _TabPotencial({required this.proyecto, required this.expediente});
+
+  final Proyecto proyecto;
+  final Expediente? expediente;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = expediente;
+    if (e == null) return _EstadoVacioExpediente(proyecto: proyecto);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ExpedienteSeccionCard(
+          titulo: 'Valoración económica',
+          icono: Icons.payments_outlined,
+          child: ValoracionEconomicaSeccion(v: e.valoracionEconomica),
+        ),
+        ExpedienteSeccionCard(
+          titulo: 'Potencial de usuarios',
+          icono: Icons.groups_outlined,
+          child: PotencialUsuariosSeccion(p: e.potencialUsuarios),
+        ),
         Align(
           alignment: Alignment.centerRight,
-          child: IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            tooltip: 'Añadir idea',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId))),
+          child: TextButton.icon(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteVersionesScreen(proyectoId: proyecto.id))),
+            icon: const Icon(Icons.history, size: 16),
+            label: const Text('Versiones anteriores'),
           ),
         ),
-        if (ideas == null)
-          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
-        else if (ideas!.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Sin ideas todavía.', style: TextStyle(color: colors.textMuted)),
-          )
-        else
-          ...ideas!.map(
-            (i) => Card(
-              margin: const EdgeInsets.only(top: 10),
-              child: ListTile(
-                leading: Icon(i.estado.icono, color: i.estado.color),
-                title: Text(i.titulo),
-                subtitle: EstadoBadge(icono: i.estado.icono, etiqueta: i.estado.etiqueta, color: i.estado.color, compacto: true),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => IdeaFormScreen(proyectoId: proyectoId, ideaExistente: i)),
-                ),
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -783,13 +814,13 @@ class _SeccionAuditorias extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
+        SeccionHeader(
+          titulo: 'Auditorías manuales',
+          icono: Icons.fact_check_outlined,
+          accion: IconButton(
             icon: const Icon(Icons.add_circle_outline),
             tooltip: 'Añadir auditoría',
-            onPressed: () =>
-                Navigator.push(context, MaterialPageRoute(builder: (_) => AuditoriaFormScreen(proyectoId: proyectoId))),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AuditoriaFormScreen(proyectoId: proyectoId))),
           ),
         ),
         if (auditorias == null)
@@ -797,7 +828,7 @@ class _SeccionAuditorias extends StatelessWidget {
         else if (auditorias!.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Sin auditorías todavía.', style: TextStyle(color: colors.textMuted)),
+            child: Text('Sin auditorías manuales todavía (también puedes pegar una desde el chat del asistente).', style: TextStyle(color: colors.textMuted)),
           )
         else
           ...auditorias!.map(
@@ -825,141 +856,6 @@ class _SeccionAuditorias extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _SeccionHistorial extends StatelessWidget {
-  const _SeccionHistorial({required this.historial});
-
-  final List<EventoHistorial>? historial;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Solo lectura -- lo generan el resto de servicios automáticamente,
-        // nunca se añade ni se edita a mano.
-        if (historial == null)
-          const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
-        else if (historial!.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Sin actividad todavía.', style: TextStyle(color: colors.textMuted)),
-          )
-        else
-          ...historial!.map(
-            (e) => Card(
-              margin: const EdgeInsets.only(top: 10),
-              child: ListTile(
-                dense: true,
-                leading: Icon(e.entidad.icono, color: colors.textMuted, size: 20),
-                title: Text(e.descripcion),
-                subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(e.fecha)),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-/// Fase 10: el expediente es un pipeline y una pantalla aparte de
-/// "Analizar con IA" (que sigue viviendo en _SeccionGithub, sin cambios) --
-/// puramente documental, nunca escribe en funcionalidades/tareas/ideas/
-/// documentos/auditorias reales ni en Proyecto.progresoPorcentaje.
-class _SeccionExpediente extends StatelessWidget {
-  const _SeccionExpediente({required this.proyecto});
-
-  final Proyecto proyecto;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return StreamBuilder<Expediente?>(
-      stream: ExpedienteService.streamActualConfirmado(proyecto.id),
-      builder: (context, snapshot) {
-        final actual = snapshot.data;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SeccionHeader(
-              titulo: 'Expediente',
-              icono: Icons.folder_special_outlined,
-              accion: TextButton.icon(
-                icon: const Icon(Icons.history, size: 16),
-                label: const Text('Versiones'),
-                onPressed: () =>
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteVersionesScreen(proyectoId: proyecto.id))),
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (!proyecto.repoConectado)
-              Text(
-                'Vincula un repositorio de GitHub en la sección Resumen para poder generar un expediente.',
-                style: TextStyle(color: colors.textMuted),
-              )
-            else if (actual == null) ...[
-              Text(
-                'Todavía no hay un expediente confirmado para este proyecto. Genera uno para obtener su descripción, '
-                'catálogo de pantallas y funcionalidades, arquitectura, calidad, seguridad y valoración económica.',
-                style: TextStyle(color: colors.textMuted),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.tonalIcon(
-                onPressed: () =>
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteRevisionScreen(proyecto: proyecto))),
-                icon: const Icon(Icons.auto_awesome),
-                label: const Text('Generar expediente'),
-              ),
-            ] else ...[
-              // Los botones de acción van ANTES del contenido a propósito --
-              // el expediente puede ser largo (9 secciones), y "Galería de
-              // capturas" escondido al final de todo era invisible en la
-              // práctica sin desplazarse por todo el documento.
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => GaleriaCapturasScreen(proyectoId: proyecto.id, pantallas: actual.pantallas),
-                      ),
-                    ),
-                    icon: const Icon(Icons.photo_library_outlined),
-                    label: const Text('Galería de capturas'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () =>
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteRevisionScreen(proyecto: proyecto))),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Generar de nuevo'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => EditarDescripcionExpedienteScreen(proyectoId: proyecto.id, expediente: actual)),
-                    ),
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Corregir descripción'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: null,
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('Exportar a PDF (próximamente)'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ExpedienteDetalleWidget(expediente: actual),
-            ],
-          ],
-        );
-      },
     );
   }
 }

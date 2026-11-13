@@ -5,9 +5,7 @@ import 'package:appsdoc/controllers/proyecto_detail_controller.dart';
 import 'package:appsdoc/models/auditoria.dart';
 import 'package:appsdoc/models/documento.dart';
 import 'package:appsdoc/models/estado_proyecto.dart';
-import 'package:appsdoc/models/evento_historial.dart';
 import 'package:appsdoc/models/funcionalidad.dart';
-import 'package:appsdoc/models/idea.dart';
 import 'package:appsdoc/models/proyecto.dart';
 import 'package:appsdoc/models/tarea.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,17 +15,15 @@ Proyecto _proyecto() {
   return Proyecto(id: 'p1', nombre: 'Demo', estado: EstadoProyecto.idea, createdAt: ahora, updatedAt: ahora);
 }
 
-/// Construye un controller con los siete streams vacíos por defecto, salvo
+/// Construye un controller con los cinco streams vacíos por defecto, salvo
 /// los que se pasen explícitamente -- evita repetir `const Stream.empty()`
-/// siete veces en cada test que solo le interesan uno o dos.
+/// cinco veces en cada test que solo le interesan uno o dos.
 ProyectoDetailController _controller({
   Stream<Proyecto?>? proyectoStream,
   Stream<List<Funcionalidad>>? funcionalidadesStream,
   Stream<List<Documento>>? documentosStream,
   Stream<List<Tarea>>? tareasStream,
-  Stream<List<Idea>>? ideasStream,
   Stream<List<Auditoria>>? auditoriasStream,
-  Stream<List<EventoHistorial>>? historialStream,
 }) {
   return ProyectoDetailController(
     proyectoId: 'p1',
@@ -35,9 +31,7 @@ ProyectoDetailController _controller({
     funcionalidadesStream: funcionalidadesStream ?? const Stream.empty(),
     documentosStream: documentosStream ?? const Stream.empty(),
     tareasStream: tareasStream ?? const Stream.empty(),
-    ideasStream: ideasStream ?? const Stream.empty(),
     auditoriasStream: auditoriasStream ?? const Stream.empty(),
-    historialStream: historialStream ?? const Stream.empty(),
   );
 }
 
@@ -48,9 +42,7 @@ void main() {
       funcionalidadesStream: StreamController<List<Funcionalidad>>().stream,
       documentosStream: StreamController<List<Documento>>().stream,
       tareasStream: StreamController<List<Tarea>>().stream,
-      ideasStream: StreamController<List<Idea>>().stream,
       auditoriasStream: StreamController<List<Auditoria>>().stream,
-      historialStream: StreamController<List<EventoHistorial>>().stream,
     );
 
     expect(controller.proyectoCargando, true);
@@ -58,9 +50,7 @@ void main() {
     expect(controller.funcionalidades, isNull);
     expect(controller.documentos, isNull);
     expect(controller.tareas, isNull);
-    expect(controller.ideas, isNull);
     expect(controller.auditorias, isNull);
-    expect(controller.historial, isNull);
   });
 
   test('cada stream actualiza su propio dato de forma independiente', () async {
@@ -68,17 +58,13 @@ void main() {
     final funcionalidadesCtrl = StreamController<List<Funcionalidad>>();
     final documentosCtrl = StreamController<List<Documento>>();
     final tareasCtrl = StreamController<List<Tarea>>();
-    final ideasCtrl = StreamController<List<Idea>>();
     final auditoriasCtrl = StreamController<List<Auditoria>>();
-    final historialCtrl = StreamController<List<EventoHistorial>>();
     final controller = _controller(
       proyectoStream: proyectoCtrl.stream,
       funcionalidadesStream: funcionalidadesCtrl.stream,
       documentosStream: documentosCtrl.stream,
       tareasStream: tareasCtrl.stream,
-      ideasStream: ideasCtrl.stream,
       auditoriasStream: auditoriasCtrl.stream,
-      historialStream: historialCtrl.stream,
     );
 
     proyectoCtrl.add(_proyecto());
@@ -98,28 +84,17 @@ void main() {
     tareasCtrl.add(const []);
     await Future<void>.delayed(Duration.zero);
     expect(controller.tareas, isEmpty);
-
-    ideasCtrl.add(const []);
-    await Future<void>.delayed(Duration.zero);
-    expect(controller.ideas, isEmpty);
     expect(controller.auditorias, isNull);
 
     auditoriasCtrl.add(const []);
     await Future<void>.delayed(Duration.zero);
     expect(controller.auditorias, isEmpty);
-    expect(controller.historial, isNull);
-
-    historialCtrl.add(const []);
-    await Future<void>.delayed(Duration.zero);
-    expect(controller.historial, isEmpty);
 
     await proyectoCtrl.close();
     await funcionalidadesCtrl.close();
     await documentosCtrl.close();
     await tareasCtrl.close();
-    await ideasCtrl.close();
     await auditoriasCtrl.close();
-    await historialCtrl.close();
   });
 
   test('si el proyecto se elimina, el stream emite null y deja de estar "cargando"', () async {
@@ -150,7 +125,7 @@ void main() {
     await funcionalidadesCtrl.close();
   });
 
-  test('un error en el stream de auditorías o historial también se expone en error', () async {
+  test('un error en el stream de auditorías también se expone en error', () async {
     final auditoriasCtrl = StreamController<List<Auditoria>>();
     final controller = _controller(auditoriasStream: auditoriasCtrl.stream);
 
@@ -162,7 +137,7 @@ void main() {
     await auditoriasCtrl.close();
   });
 
-  test('dispose() cancela las siete suscripciones', () async {
+  test('dispose() cancela las cinco suscripciones', () async {
     final proyectoCtrl = StreamController<Proyecto?>();
     final controller = _controller(proyectoStream: proyectoCtrl.stream);
     var notificaciones = 0;

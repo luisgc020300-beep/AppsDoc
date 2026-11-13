@@ -1,21 +1,17 @@
 // test/screens/proyecto_detail_screen_test.dart
 import 'dart:convert';
 
-import 'package:appsdoc/models/estado_tarea.dart';
-import 'package:appsdoc/screens/analisis/analisis_repositorio_screen.dart';
+import 'package:appsdoc/models/estado_funcionalidad.dart';
 import 'package:appsdoc/screens/asistente/asistente_screen.dart';
-import 'package:appsdoc/screens/documentacion/documento_form_screen.dart';
-import 'package:appsdoc/screens/funcionalidades/funcionalidad_form_screen.dart';
-import 'package:appsdoc/screens/ideas/idea_form_screen.dart';
+import 'package:appsdoc/screens/expediente/expediente_revision_screen.dart';
 import 'package:appsdoc/screens/proyectos/proyecto_detail_screen.dart';
-import 'package:appsdoc/screens/tareas/tarea_form_screen.dart';
 import 'package:appsdoc/services/auditoria_service.dart';
+import 'package:appsdoc/services/captura_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/expediente_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/github_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
-import 'package:appsdoc/services/idea_service.dart';
 import 'package:appsdoc/services/mensaje_asistente_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:appsdoc/services/tarea_service.dart';
@@ -25,6 +21,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+Map<String, dynamic> _respuestaExpedienteCanon({String resumen = 'Confirmado'}) => {
+  'descripcionGeneral': {'resumen': resumen, 'propuestaValor': 'Así se usa.', 'publicoObjetivo': '', 'estadoMadurez': ''},
+  'pantallas': [
+    {'nombre': 'Login', 'descripcionFuncion': '', 'archivoPrincipal': '', 'navegacion': '', 'pantallasRelacionadas': []},
+  ],
+  'catalogoFuncionalidades': [
+    {'nombre': 'Iniciar sesión', 'descripcion': '', 'confianza': 'verificada', 'evidencia': '', 'archivosRelacionados': []},
+  ],
+  'posibilidadesFuturas': [
+    {'nombre': 'Recordatorios por email', 'descripcion': ''},
+  ],
+  'arquitectura': {'resumen': 'Flutter + Firebase.', 'patrones': [], 'tecnologias': []},
+  'calidad': {'resumen': '', 'hallazgos': []},
+  'seguridad': {'resumen': '', 'hallazgos': []},
+  'valoracionEconomica': {
+    'conservador': {},
+    'intermedio': {},
+    'optimista': {},
+    'supuestos': [],
+    'limitaciones': '',
+    'nivelConfianza': 'baja',
+  },
+  'potencialUsuarios': {
+    'conservador': {},
+    'intermedio': {},
+    'optimista': {},
+    'segmentoObjetivo': 'Gente con poco tiempo.',
+    'supuestos': [],
+    'limitaciones': '',
+    'nivelConfianza': 'baja',
+  },
+  'progresoValor': {'progresoPorcentajeLeido': 0, 'analisisTexto': ''},
+  'metaGeneracion': {'modeloUsado': '', 'etapasEjecutadas': 0, 'archivosAnalizados': 0, 'archivosOmitidos': 0, 'truncado': false},
+};
 
 void main() {
   setUp(() {
@@ -37,14 +68,14 @@ void main() {
     DocumentoService.debugUidOverride = 'uid-test';
     TareaService.debugFirestoreOverride = db;
     TareaService.debugUidOverride = 'uid-test';
-    IdeaService.debugFirestoreOverride = db;
-    IdeaService.debugUidOverride = 'uid-test';
     AuditoriaService.debugFirestoreOverride = db;
     AuditoriaService.debugUidOverride = 'uid-test';
     HistorialService.debugFirestoreOverride = db;
     HistorialService.debugUidOverride = 'uid-test';
     ExpedienteService.debugFirestoreOverride = db;
     ExpedienteService.debugUidOverride = 'uid-test';
+    CapturaService.debugFirestoreOverride = db;
+    CapturaService.debugUidOverride = 'uid-test';
     MensajeAsistenteService.debugFirestoreOverride = db;
     MensajeAsistenteService.debugUidOverride = 'uid-test';
   });
@@ -54,6 +85,8 @@ void main() {
     ExpedienteService.debugFirestoreOverride = null;
     ExpedienteService.debugUidOverride = null;
     ExpedienteService.debugCallableOverride = null;
+    CapturaService.debugFirestoreOverride = null;
+    CapturaService.debugUidOverride = null;
     MensajeAsistenteService.debugFirestoreOverride = null;
     MensajeAsistenteService.debugUidOverride = null;
     ProyectoService.debugFirestoreOverride = null;
@@ -68,8 +101,6 @@ void main() {
     HistorialService.debugUidOverride = null;
     TareaService.debugFirestoreOverride = null;
     TareaService.debugUidOverride = null;
-    IdeaService.debugFirestoreOverride = null;
-    IdeaService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);
@@ -81,152 +112,133 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// La ficha es un TabBar desplazable (Resumen, Funcionalidades,
-  /// Documentación, Tareas, Ideas, Auditorías, Historial) -- cada pestaña
-  /// es su propia página, así que hace falta cambiar de pestaña antes de
-  /// interactuar con el contenido de cualquiera que no sea "Resumen" (la
-  /// que se ve al entrar).
+  /// La ficha es un TabBar desplazable con 5 pestañas (Funcionalidades,
+  /// Ideas, Documentos, Pantallas, Potencial) -- cada una es su propia
+  /// página. La ficha básica/GitHub/progreso ya no es una pestaña: es una
+  /// cabecera fija visible siempre, sin necesidad de cambiar de pestaña.
   Future<void> irATab(WidgetTester tester, String etiqueta) async {
     final tab = find.widgetWithText(Tab, etiqueta);
-    // El TabBar es desplazable (7 pestañas) -- "Historial", la última,
-    // queda fuera del ancho del viewport de test hasta que se desplaza.
     await tester.ensureVisible(tab);
     await tester.pumpAndSettle();
     await tester.tap(tab);
     await tester.pumpAndSettle();
   }
 
-  testWidgets('muestra la ficha del proyecto y los estados vacíos de todas las secciones', (tester) async {
+  testWidgets('muestra la cabecera fija y los estados vacíos de las 5 pestañas', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA', descripcion: 'Mantenimiento del hogar');
 
     await pumpDetailScreen(tester, id);
 
-    // Resumen (pestaña por defecto).
+    // Cabecera fija: visible de entrada, sin cambiar de pestaña.
     expect(find.text('Mantenimiento del hogar'), findsOneWidget);
     expect(find.text('Repositorio'), findsOneWidget);
     expect(find.text('Sin repositorio vinculado.'), findsOneWidget);
+    expect(find.text('Preparación para publicar'), findsOneWidget);
 
-    await irATab(tester, 'Funcionalidades');
-    expect(find.text('Sin funcionalidades todavía.'), findsOneWidget);
+    for (final etiqueta in ['Funcionalidades', 'Ideas', 'Documentos', 'Pantallas', 'Potencial']) {
+      await irATab(tester, etiqueta);
+      expect(find.textContaining('Vincula un repositorio'), findsOneWidget, reason: 'pestaña "$etiqueta" sin repo vinculado');
+    }
 
-    await irATab(tester, 'Documentación');
-    expect(find.text('Sin documentos todavía.'), findsOneWidget);
-
-    await irATab(tester, 'Tareas');
-    expect(find.text('Sin tareas todavía.'), findsOneWidget);
-
-    await irATab(tester, 'Ideas');
-    expect(find.text('Sin ideas todavía.'), findsOneWidget);
-
-    await irATab(tester, 'Auditorías');
-    expect(find.text('Sin auditorías todavía.'), findsOneWidget);
-
-    await irATab(tester, 'Historial');
-    // El propio crear() del proyecto ya dejó un evento -- nunca está vacío.
-    expect(find.text('Sin actividad todavía.'), findsNothing);
-    expect(find.textContaining('Proyecto creado'), findsOneWidget);
-
-    await irATab(tester, 'Expediente');
-    expect(find.textContaining('Vincula un repositorio'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Generar expediente'), findsNothing);
+    // "Documentos" además conserva la sección de auditorías manuales, sin
+    // repo ni expediente.
+    await irATab(tester, 'Documentos');
+    expect(find.text('Auditorías manuales'), findsOneWidget);
+    expect(find.textContaining('Sin auditorías manuales todavía'), findsOneWidget);
   });
 
-  testWidgets('la pestaña Expediente ofrece generar uno cuando hay repositorio vinculado, y muestra el confirmado cuando existe', (tester) async {
+  testWidgets('con repo vinculado pero sin analizar, cada pestaña ofrece "Analizar con IA"', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
     await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
     GithubService.debugHttpClientOverride = MockClient(
       (request) async => http.Response(jsonEncode({'default_branch': 'main', 'updated_at': '2026-11-01T10:00:00Z'}), 200),
     );
-    await tester.binding.setSurfaceSize(const Size(800, 2000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await pumpDetailScreen(tester, id);
-    await irATab(tester, 'Expediente');
+    await irATab(tester, 'Ideas');
 
-    // find.widgetWithText compara runtimeType exacto -- FilledButton.tonalIcon
-    // construye una subclase privada, así que hace falta un predicate con "is".
-    expect(find.ancestor(of: find.text('Generar expediente'), matching: find.byWidgetPredicate((w) => w is FilledButton)), findsOneWidget);
-    expect(find.textContaining('Todavía no hay un expediente confirmado'), findsOneWidget);
-
-    ExpedienteService.debugCallableOverride = (datos) async => {
-      'descripcionGeneral': {'resumen': 'Confirmado', 'propuestaValor': '', 'publicoObjetivo': '', 'estadoMadurez': ''},
-      'pantallas': <Map<String, dynamic>>[],
-      'catalogoFuncionalidades': <Map<String, dynamic>>[],
-      'arquitectura': {'resumen': '', 'patrones': [], 'tecnologias': []},
-      'calidad': {'resumen': '', 'hallazgos': []},
-      'seguridad': {'resumen': '', 'hallazgos': []},
-      'valoracionEconomica': {
-        'conservador': {},
-        'intermedio': {},
-        'optimista': {},
-        'supuestos': [],
-        'limitaciones': '',
-        'nivelConfianza': 'baja',
-      },
-      'potencialUsuarios': {
-        'conservador': {},
-        'intermedio': {},
-        'optimista': {},
-        'segmentoObjetivo': '',
-        'supuestos': [],
-        'limitaciones': '',
-        'nivelConfianza': 'baja',
-      },
-      'progresoValor': {'progresoPorcentajeLeido': 0, 'analisisTexto': ''},
-      'metaGeneracion': {'modeloUsado': '', 'etapasEjecutadas': 0, 'archivosAnalizados': 0, 'archivosOmitidos': 0, 'truncado': false},
-    };
-    final expediente = await ExpedienteService.generar(proyectoId: id);
-    await ExpedienteService.confirmar(id, expediente.id);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Confirmado'), findsOneWidget);
-    // find.widgetWithText compara runtimeType exacto, y .tonalIcon/.icon
-    // construyen subclases privadas -- ButtonStyleButton es la superclase
-    // común a FilledButton/OutlinedButton/TextButton, así que el test no
-    // depende de cuál de los tres se use para cada acción.
+    expect(find.textContaining('Todavía no se ha analizado'), findsOneWidget);
     Finder botonConTexto(String texto) =>
         find.ancestor(of: find.text(texto), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
-    expect(botonConTexto('Galería de capturas'), findsOneWidget);
-    expect(botonConTexto('Generar de nuevo'), findsOneWidget);
-    expect(botonConTexto('Corregir descripción'), findsOneWidget);
+    await tester.tap(botonConTexto('Analizar con IA').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ExpedienteRevisionScreen), findsOneWidget);
   });
 
-  testWidgets('añadir una funcionalidad desde la sección la hace aparecer en la lista', (tester) async {
+  testWidgets('analizar, confirmar y ver el resultado repartido en las 5 pestañas', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
+    await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+    GithubService.debugHttpClientOverride = MockClient(
+      (request) async => http.Response(jsonEncode({'default_branch': 'main', 'updated_at': '2026-11-01T10:00:00Z'}), 200),
+    );
+    ExpedienteService.debugCallableOverride = (datos) async => _respuestaExpedienteCanon();
+
+    await pumpDetailScreen(tester, id);
+
+    Finder botonConTexto(String texto) =>
+        find.ancestor(of: find.text(texto), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
+    await tester.tap(botonConTexto('Analizar con IA').first);
+    await tester.pumpAndSettle();
+    await tester.tap(botonConTexto('Generar expediente'));
+    await tester.pumpAndSettle();
+    await tester.tap(botonConTexto('Confirmar expediente'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ExpedienteRevisionScreen), findsNothing);
+
+    await irATab(tester, 'Funcionalidades');
+    expect(find.text('Confirmado'), findsOneWidget);
+    expect(find.text('Así se usa.'), findsOneWidget);
+
+    await irATab(tester, 'Ideas');
+    expect(find.text('Iniciar sesión'), findsOneWidget);
+    expect(find.text('Recordatorios por email'), findsOneWidget);
+
+    await irATab(tester, 'Documentos');
+    expect(find.text('Flutter + Firebase.'), findsOneWidget);
+
+    await irATab(tester, 'Pantallas');
+    expect(find.text('Login'), findsOneWidget);
+
+    await irATab(tester, 'Potencial');
+    expect(find.text('Gente con poco tiempo.'), findsOneWidget);
+  });
+
+  testWidgets('"Corregir" en Funcionalidades abre la edición manual de la descripción confirmada', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+    GithubService.debugHttpClientOverride = MockClient(
+      (request) async => http.Response(jsonEncode({'default_branch': 'main', 'updated_at': '2026-11-01T10:00:00Z'}), 200),
+    );
+    ExpedienteService.debugCallableOverride = (datos) async => _respuestaExpedienteCanon();
+    final borrador = await ExpedienteService.generar(proyectoId: id);
+    await ExpedienteService.confirmar(id, borrador.id);
 
     await pumpDetailScreen(tester, id);
     await irATab(tester, 'Funcionalidades');
-
-    await tester.tap(find.byTooltip('Añadir funcionalidad'));
-    await tester.pumpAndSettle();
-    expect(find.byType(FuncionalidadFormScreen), findsOneWidget);
-
-    await tester.enterText(find.widgetWithText(TextFormField, 'Nombre'), 'Invitar profesional');
-    await tester.tap(find.widgetWithText(FilledButton, 'Crear funcionalidad'));
+    // TextButton.icon construye una subclase privada -- find.widgetWithText
+    // compara runtimeType exacto, así que hace falta un predicate con "is".
+    await tester.tap(find.ancestor(of: find.text('Corregir'), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)));
     await tester.pumpAndSettle();
 
-    expect(find.byType(FuncionalidadFormScreen), findsNothing);
-    expect(find.text('Invitar profesional'), findsOneWidget);
-    expect(find.text('Sin funcionalidades todavía.'), findsNothing);
+    expect(find.text('Corregir descripción general'), findsOneWidget);
   });
 
-  testWidgets('añadir un documento desde la sección lo hace aparecer en la lista', (tester) async {
+  testWidgets('añadir una auditoría manual en Documentos la hace aparecer en la lista', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
-    await irATab(tester, 'Documentación');
+    await irATab(tester, 'Documentos');
 
-    await tester.tap(find.byTooltip('Añadir documento'));
-    await tester.pumpAndSettle();
-    expect(find.byType(DocumentoFormScreen), findsOneWidget);
-
-    await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Arquitectura de notificaciones');
-    await tester.tap(find.widgetWithText(FilledButton, 'Crear documento'));
+    await tester.tap(find.byTooltip('Añadir auditoría'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(DocumentoFormScreen), findsNothing);
-    expect(find.text('Arquitectura de notificaciones'), findsOneWidget);
-    expect(find.text('Sin documentos todavía.'), findsNothing);
+    await tester.enterText(find.widgetWithText(TextFormField, 'Resumen'), 'Primera auditoría');
+    await tester.tap(find.widgetWithText(FilledButton, 'Crear auditoría'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Sin auditorías manuales todavía'), findsNothing);
   });
 
   testWidgets('eliminar el proyecto desde "editar" cierra también la pantalla de detalle', (tester) async {
@@ -263,100 +275,7 @@ void main() {
     expect(find.text('abrir'), findsOneWidget);
   });
 
-  testWidgets('añadir una tarea desde la sección la hace aparecer en la lista', (tester) async {
-    final id = await ProyectoService.crear(nombre: 'REPARA');
-
-    await pumpDetailScreen(tester, id);
-    await irATab(tester, 'Tareas');
-
-    await tester.tap(find.byTooltip('Añadir tarea'));
-    await tester.pumpAndSettle();
-    expect(find.byType(TareaFormScreen), findsOneWidget);
-
-    await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Escribir reglas de Firestore');
-    await tester.tap(find.widgetWithText(FilledButton, 'Crear tarea'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(TareaFormScreen), findsNothing);
-    expect(find.text('Escribir reglas de Firestore'), findsOneWidget);
-    expect(find.text('Sin tareas todavía.'), findsNothing);
-  });
-
-  testWidgets('añadir una idea desde la sección la hace aparecer en la lista', (tester) async {
-    final id = await ProyectoService.crear(nombre: 'REPARA');
-
-    await pumpDetailScreen(tester, id);
-    await irATab(tester, 'Ideas');
-
-    await tester.tap(find.byTooltip('Añadir idea'));
-    await tester.pumpAndSettle();
-    expect(find.byType(IdeaFormScreen), findsOneWidget);
-
-    await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Soporte offline');
-    await tester.tap(find.widgetWithText(FilledButton, 'Crear idea'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(IdeaFormScreen), findsNothing);
-    expect(find.text('Soporte offline'), findsOneWidget);
-    expect(find.text('Sin ideas todavía.'), findsNothing);
-  });
-
-  testWidgets('cambiar el estado de una tarea desde el menú de la lista no abre su ficha', (tester) async {
-    final id = await ProyectoService.crear(nombre: 'REPARA');
-    await TareaService.crear(proyectoId: id, titulo: 'Tarea rápida');
-
-    await pumpDetailScreen(tester, id);
-    await irATab(tester, 'Tareas');
-
-    expect(find.text('Pendiente'), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(PopupMenuItem<EstadoTarea>, 'Completada').last);
-    await tester.pumpAndSettle();
-
-    expect(find.byType(TareaFormScreen), findsNothing);
-    expect(find.text('Completada'), findsOneWidget);
-    expect(find.text('Pendiente'), findsNothing);
-  });
-
-  testWidgets('añadir una auditoría desde la sección la hace aparecer en la lista', (tester) async {
-    final id = await ProyectoService.crear(nombre: 'REPARA');
-
-    await pumpDetailScreen(tester, id);
-    await irATab(tester, 'Auditorías');
-
-    await tester.tap(find.byTooltip('Añadir auditoría'));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.widgetWithText(TextFormField, 'Resumen'), 'Primera auditoría');
-    await tester.tap(find.widgetWithText(FilledButton, 'Crear auditoría'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Sin auditorías todavía.'), findsNothing);
-    // La fila de la lista no muestra el resumen, solo fecha/origen -- lo
-    // que sí confirma que se creó es que el historial recoja el evento.
-    await irATab(tester, 'Historial');
-    expect(find.textContaining('Auditoría creada'), findsOneWidget);
-  });
-
-  testWidgets('crear una tarea deja un evento en el historial, visible en esa misma pantalla', (tester) async {
-    final id = await ProyectoService.crear(nombre: 'REPARA');
-
-    await pumpDetailScreen(tester, id);
-    await irATab(tester, 'Tareas');
-
-    await tester.tap(find.byTooltip('Añadir tarea'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextFormField, 'Título'), 'Tarea con historial');
-    await tester.tap(find.widgetWithText(FilledButton, 'Crear tarea'));
-    await tester.pumpAndSettle();
-
-    await irATab(tester, 'Historial');
-    expect(find.textContaining('Tarea creada: "Tarea con historial"'), findsOneWidget);
-  });
-
-  testWidgets('muestra el porcentaje y el desglose de los cuatro criterios de progreso', (tester) async {
+  testWidgets('muestra el porcentaje y el desglose de los cuatro criterios de progreso en la cabecera', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
 
     await pumpDetailScreen(tester, id);
@@ -373,21 +292,16 @@ void main() {
     expect(find.text('0/15'), findsOneWidget);
   });
 
-  testWidgets('completar la única funcionalidad sube el progreso en vivo, sin recargar la pantalla', (tester) async {
+  testWidgets('completar una funcionalidad existente sube el progreso en vivo, en la cabecera, sin cambiar de pestaña', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
-    await FuncionalidadService.crear(proyectoId: id, nombre: 'Login');
+    final funcionalidadId = await FuncionalidadService.crear(proyectoId: id, nombre: 'Login');
 
     await pumpDetailScreen(tester, id);
     expect(find.text('45%'), findsOneWidget);
 
-    await irATab(tester, 'Funcionalidades');
-    await tester.tap(find.text('Login'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Completada'));
-    await tester.tap(find.widgetWithText(FilledButton, 'Guardar cambios'));
+    await FuncionalidadService.actualizar(id, funcionalidadId, estado: EstadoFuncionalidad.completada);
     await tester.pumpAndSettle();
 
-    await irATab(tester, 'Resumen');
     expect(find.text('85%'), findsOneWidget);
     expect(find.text('45%'), findsNothing);
   });
@@ -502,7 +416,7 @@ void main() {
     expect(find.textContaining('REPARA'), findsWidgets);
   });
 
-  testWidgets('el botón "Analizar con IA" abre la pantalla de análisis del repositorio vinculado', (tester) async {
+  testWidgets('el botón "Analizar con IA" de la cabecera abre ExpedienteRevisionScreen (una sola operación de IA)', (tester) async {
     final id = await ProyectoService.crear(nombre: 'REPARA');
     await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
     GithubService.debugHttpClientOverride = MockClient(
@@ -516,11 +430,10 @@ void main() {
     // FilledButton "a secas" nunca casa con él. Hace falta un predicate con
     // "is" para aceptar esa subclase.
     await tester.tap(
-      find.ancestor(of: find.text('Analizar con IA'), matching: find.byWidgetPredicate((w) => w is FilledButton)),
+      find.ancestor(of: find.text('Analizar con IA'), matching: find.byWidgetPredicate((w) => w is FilledButton)).first,
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(AnalisisRepositorioScreen), findsOneWidget);
-    expect(find.textContaining('owner/repo'), findsOneWidget);
+    expect(find.byType(ExpedienteRevisionScreen), findsOneWidget);
   });
 }

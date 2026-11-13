@@ -4,6 +4,12 @@
 // agrupadas por pantalla detectada en el expediente actual, ver a pantalla
 // completa y eliminar. No hay captura automática todavía (ver
 // OrigenCaptura.automatica, preparado pero sin infraestructura detrás).
+//
+// El contenido vive en GaleriaCapturasWidget (sin Scaffold/AppBar propios)
+// para poder embeberse directamente en la pestaña "Pantallas" de
+// ProyectoDetailScreen; esta pantalla es solo un envoltorio fino para
+// cuando hace falta abrirla a pantalla completa (p.ej. desde una versión
+// anterior del expediente).
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -14,8 +20,23 @@ import '../../models/expediente.dart';
 import '../../services/captura_service.dart';
 import '../../theme/design_tokens.dart';
 
-class GaleriaCapturasScreen extends StatefulWidget {
+class GaleriaCapturasScreen extends StatelessWidget {
   const GaleriaCapturasScreen({required this.proyectoId, required this.pantallas, super.key});
+
+  final String proyectoId;
+  final List<PantallaExpediente> pantallas;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Galería de capturas')),
+      body: SafeArea(child: GaleriaCapturasWidget(proyectoId: proyectoId, pantallas: pantallas)),
+    );
+  }
+}
+
+class GaleriaCapturasWidget extends StatefulWidget {
+  const GaleriaCapturasWidget({required this.proyectoId, required this.pantallas, super.key});
 
   final String proyectoId;
 
@@ -26,10 +47,10 @@ class GaleriaCapturasScreen extends StatefulWidget {
   final List<PantallaExpediente> pantallas;
 
   @override
-  State<GaleriaCapturasScreen> createState() => _GaleriaCapturasScreenState();
+  State<GaleriaCapturasWidget> createState() => _GaleriaCapturasWidgetState();
 }
 
-class _GaleriaCapturasScreenState extends State<GaleriaCapturasScreen> {
+class _GaleriaCapturasWidgetState extends State<GaleriaCapturasWidget> {
   String? _subiendoAPantalla;
   String? _error;
 
@@ -96,77 +117,73 @@ class _GaleriaCapturasScreenState extends State<GaleriaCapturasScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Galería de capturas')),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _subiendoAPantalla != null ? null : _subir,
-        tooltip: 'Añadir captura',
-        child: _subiendoAPantalla != null
-            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-            : const Icon(Icons.add_a_photo_outlined),
-      ),
-      body: SafeArea(
-        child: StreamBuilder<List<Captura>>(
-          stream: CapturaService.streamCapturas(widget.proyectoId),
-          builder: (context, snapshot) {
-            final capturas = snapshot.data;
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (_error != null) ...[
-                  Row(
+    return StreamBuilder<List<Captura>>(
+      stream: CapturaService.streamCapturas(widget.proyectoId),
+      builder: (context, snapshot) {
+        final capturas = snapshot.data;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                icon: _subiendoAPantalla != null
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.add_a_photo_outlined),
+                tooltip: 'Añadir captura',
+                onPressed: _subiendoAPantalla != null ? null : _subir,
+              ),
+            ),
+            if (_error != null) ...[
+              Row(
+                children: [
+                  Icon(Icons.error_outline, size: 18, color: colors.danger),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_error!, style: TextStyle(color: colors.danger))),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+            if (capturas == null)
+              const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+            else if (capturas.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  'Todavía no hay ninguna captura. Súbelas con el botón de arriba.',
+                  style: TextStyle(color: colors.textMuted),
+                ),
+              )
+            else
+              ..._agrupadasPorPantalla(capturas).entries.map(
+                (entrada) => Padding(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.error_outline, size: 18, color: colors.danger),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(_error!, style: TextStyle(color: colors.danger))),
+                      Text(_nombrePantalla(entrada.key), style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 8),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: entrada.value.length,
+                        itemBuilder: (context, i) => _Miniatura(
+                          captura: entrada.value[i],
+                          onEliminar: () => _eliminar(entrada.value[i]),
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                ],
-                if (capturas == null)
-                  const Center(child: CircularProgressIndicator())
-                else if (capturas.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 40),
-                      child: Text(
-                        'Todavía no hay ninguna captura. Súbelas con el botón de abajo.',
-                        style: TextStyle(color: colors.textMuted),
-                      ),
-                    ),
-                  )
-                else
-                  ..._agrupadasPorPantalla(capturas).entries.map(
-                    (entrada) => Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(_nombrePantalla(entrada.key), style: Theme.of(context).textTheme.titleSmall),
-                          const SizedBox(height: 8),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              crossAxisSpacing: 8,
-                              mainAxisSpacing: 8,
-                            ),
-                            itemCount: entrada.value.length,
-                            itemBuilder: (context, i) => _Miniatura(
-                              captura: entrada.value[i],
-                              onEliminar: () => _eliminar(entrada.value[i]),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 

@@ -40,6 +40,9 @@ Expediente _expedienteCompleto() {
         archivosRelacionados: ['lib/services/auth_service.dart'],
       ),
     ],
+    posibilidadesFuturas: const [
+      PosibilidadFutura(nombre: 'Recordatorios automáticos por email', descripcion: 'Avisar antes de que venza una tarea.'),
+    ],
     arquitectura: const SeccionArquitectura(
       resumen: 'Flutter + Firebase.',
       patrones: ['Servicios estáticos'],
@@ -97,6 +100,8 @@ void main() {
     expect(reconstruido.pantallas.single.claveEstable, 'clave-1');
     expect(reconstruido.pantallas.single.pantallasRelacionadas, ['Listado de proyectos']);
     expect(reconstruido.catalogoFuncionalidades.single.confianza, ConfianzaExpediente.verificada);
+    expect(reconstruido.posibilidadesFuturas.single.nombre, 'Recordatorios automáticos por email');
+    expect(reconstruido.posibilidadesFuturas.single.descripcion, 'Avisar antes de que venza una tarea.');
     expect(reconstruido.arquitectura.tecnologias, ['Flutter', 'Firebase']);
     expect(reconstruido.calidad.hallazgos.single.gravedad, GravedadHallazgo.media);
     expect(reconstruido.seguridad.hallazgos, isEmpty);
@@ -173,6 +178,7 @@ void main() {
     expect(borrador.estado, EstadoExpediente.borrador);
     expect(borrador.confirmadoEn, isNull);
     expect(borrador.descripcionGeneral.resumen, 'Resumen generado.');
+    expect(borrador.posibilidadesFuturas, isEmpty);
     expect(borrador.createdAt, isNotNull);
     expect(borrador.updatedAt, isNotNull);
   });

@@ -1,10 +1,14 @@
 // lib/widgets/expediente/expediente_detalle_widget.dart
 //
-// Renderiza las nueve secciones de un Expediente (Fase 10) en modo lectura.
-// Lo usan la pantalla de revisión del borrador, la pestaña "Expediente" del
-// detalle de proyecto y el visor de versiones anteriores -- siempre el mismo
-// widget, para que lo que se confirma sea exactamente lo que se ve antes de
-// confirmar.
+// Renderiza las once secciones de un Expediente (Fase 10) en modo lectura.
+// Lo usan la pantalla de revisión del borrador y el visor de versiones
+// anteriores -- siempre el mismo widget, para que lo que se confirma sea
+// exactamente lo que se ve antes de confirmar.
+//
+// Las tarjetas individuales (DescripcionGeneralSeccion, CatalogoFuncionalidadesSeccion,
+// etc.) son públicas a propósito: las 5 pestañas de ProyectoDetailScreen
+// (reorganización post-Fase-10) componen solo las que necesitan, reutilizando
+// el mismo render que aquí en vez de duplicar lógica.
 import 'package:flutter/material.dart';
 
 import '../../models/expediente.dart';
@@ -22,57 +26,75 @@ class ExpedienteDetalleWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _MetaAviso(expediente: expediente),
+        MetaGeneracionAviso(expediente: expediente),
         const SizedBox(height: 12),
-        _tarjeta(context, titulo: 'Descripción general', icono: Icons.description_outlined, child: _DescripcionGeneral(d: expediente.descripcionGeneral)),
-        _tarjeta(
-          context,
+        ExpedienteSeccionCard(
+          titulo: 'Descripción general',
+          icono: Icons.description_outlined,
+          child: DescripcionGeneralSeccion(d: expediente.descripcionGeneral),
+        ),
+        ExpedienteSeccionCard(
           titulo: 'Pantallas (${expediente.pantallas.length})',
           icono: Icons.dashboard_outlined,
-          child: _ListaPantallas(pantallas: expediente.pantallas),
+          child: ListaPantallasSeccion(pantallas: expediente.pantallas),
         ),
-        _tarjeta(
-          context,
+        ExpedienteSeccionCard(
           titulo: 'Catálogo de funcionalidades (${expediente.catalogoFuncionalidades.length})',
           icono: Icons.checklist_outlined,
-          child: _ListaFuncionalidades(funcionalidades: expediente.catalogoFuncionalidades),
+          child: CatalogoFuncionalidadesSeccion(funcionalidades: expediente.catalogoFuncionalidades),
         ),
-        _tarjeta(context, titulo: 'Arquitectura', icono: Icons.architecture_outlined, child: _Arquitectura(a: expediente.arquitectura)),
-        _tarjeta(
-          context,
+        ExpedienteSeccionCard(
+          titulo: 'Posibilidades futuras (${expediente.posibilidadesFuturas.length})',
+          icono: Icons.lightbulb_outline,
+          child: PosibilidadesFuturasSeccion(posibilidades: expediente.posibilidadesFuturas),
+        ),
+        ExpedienteSeccionCard(
+          titulo: 'Arquitectura',
+          icono: Icons.architecture_outlined,
+          child: ArquitecturaSeccion(a: expediente.arquitectura),
+        ),
+        ExpedienteSeccionCard(
           titulo: 'Calidad del código',
           icono: Icons.verified_outlined,
-          child: _SeccionHallazgos(resumen: expediente.calidad.resumen, hallazgos: expediente.calidad.hallazgos),
+          child: HallazgosSeccion(resumen: expediente.calidad.resumen, hallazgos: expediente.calidad.hallazgos),
         ),
-        _tarjeta(
-          context,
+        ExpedienteSeccionCard(
           titulo: 'Seguridad',
           icono: Icons.shield_outlined,
-          child: _SeccionHallazgos(resumen: expediente.seguridad.resumen, hallazgos: expediente.seguridad.hallazgos),
+          child: HallazgosSeccion(resumen: expediente.seguridad.resumen, hallazgos: expediente.seguridad.hallazgos),
         ),
-        _tarjeta(
-          context,
+        ExpedienteSeccionCard(
           titulo: 'Valoración económica',
           icono: Icons.payments_outlined,
-          child: _ValoracionEconomica(v: expediente.valoracionEconomica),
+          child: ValoracionEconomicaSeccion(v: expediente.valoracionEconomica),
         ),
-        _tarjeta(
-          context,
+        ExpedienteSeccionCard(
           titulo: 'Potencial de usuarios',
           icono: Icons.groups_outlined,
-          child: _PotencialUsuarios(p: expediente.potencialUsuarios),
+          child: PotencialUsuariosSeccion(p: expediente.potencialUsuarios),
         ),
-        _tarjeta(
-          context,
+        ExpedienteSeccionCard(
           titulo: 'Progreso y valor',
           icono: Icons.insights_outlined,
-          child: _ProgresoValor(p: expediente.progresoValor),
+          child: ProgresoValorSeccion(p: expediente.progresoValor),
         ),
       ],
     );
   }
+}
 
-  Widget _tarjeta(BuildContext context, {required String titulo, required IconData icono, required Widget child}) {
+/// Envoltorio de tarjeta común a todas las secciones del expediente -- lo
+/// usan tanto `ExpedienteDetalleWidget` (las once de golpe) como las 5
+/// pestañas de `ProyectoDetailScreen` (un subconjunto cada una).
+class ExpedienteSeccionCard extends StatelessWidget {
+  const ExpedienteSeccionCard({required this.titulo, required this.icono, required this.child, super.key});
+
+  final String titulo;
+  final IconData icono;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -88,8 +110,8 @@ class ExpedienteDetalleWidget extends StatelessWidget {
   }
 }
 
-class _MetaAviso extends StatelessWidget {
-  const _MetaAviso({required this.expediente});
+class MetaGeneracionAviso extends StatelessWidget {
+  const MetaGeneracionAviso({required this.expediente, super.key});
   final Expediente expediente;
 
   @override
@@ -114,9 +136,18 @@ class _MetaAviso extends StatelessWidget {
   }
 }
 
-class _DescripcionGeneral extends StatelessWidget {
-  const _DescripcionGeneral({required this.d});
+/// `propuestaValor` se muestra como "Cómo funciona" -- desde la reorganización
+/// de pestañas, ese campo ya no pide una propuesta de valor de negocio sino
+/// una explicación funcional para un futuro usuario (ver el prompt de
+/// `generarExpediente` en el backend).
+class DescripcionGeneralSeccion extends StatelessWidget {
+  const DescripcionGeneralSeccion({required this.d, this.soloIntroduccion = false, super.key});
+
   final SeccionDescripcionGeneral d;
+
+  /// true en la pestaña "Funcionalidades": solo resumen + cómo funciona, sin
+  /// público objetivo/estado de madurez (esos viven en Documentos/Potencial).
+  final bool soloIntroduccion;
 
   @override
   Widget build(BuildContext context) {
@@ -125,16 +156,16 @@ class _DescripcionGeneral extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(d.resumen.isEmpty ? '(sin resumen)' : d.resumen),
-        if (d.estadoMadurez.isNotEmpty) ...[
+        if (!soloIntroduccion && d.estadoMadurez.isNotEmpty) ...[
           const SizedBox(height: 8),
           Text('Estado: ${d.estadoMadurez}', style: TextStyle(color: colors.textMuted, fontSize: 12)),
         ],
         if (d.propuestaValor.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Text('Propuesta de valor', style: Theme.of(context).textTheme.labelMedium),
+          Text('Cómo funciona', style: Theme.of(context).textTheme.labelMedium),
           Text(d.propuestaValor),
         ],
-        if (d.publicoObjetivo.isNotEmpty) ...[
+        if (!soloIntroduccion && d.publicoObjetivo.isNotEmpty) ...[
           const SizedBox(height: 10),
           Text('Público objetivo', style: Theme.of(context).textTheme.labelMedium),
           Text(d.publicoObjetivo),
@@ -144,8 +175,8 @@ class _DescripcionGeneral extends StatelessWidget {
   }
 }
 
-class _ListaPantallas extends StatelessWidget {
-  const _ListaPantallas({required this.pantallas});
+class ListaPantallasSeccion extends StatelessWidget {
+  const ListaPantallasSeccion({required this.pantallas, super.key});
   final List<PantallaExpediente> pantallas;
 
   @override
@@ -178,8 +209,8 @@ class _ListaPantallas extends StatelessWidget {
   }
 }
 
-class _ListaFuncionalidades extends StatelessWidget {
-  const _ListaFuncionalidades({required this.funcionalidades});
+class CatalogoFuncionalidadesSeccion extends StatelessWidget {
+  const CatalogoFuncionalidadesSeccion({required this.funcionalidades, super.key});
   final List<FuncionalidadExpediente> funcionalidades;
 
   @override
@@ -210,8 +241,56 @@ class _ListaFuncionalidades extends StatelessWidget {
   }
 }
 
-class _Arquitectura extends StatelessWidget {
-  const _Arquitectura({required this.a});
+/// Deliberadamente distinta de CatalogoFuncionalidadesSeccion -- sin
+/// confianza/evidencia (es especulación de la IA, no algo verificado en el
+/// código) y con un aviso explícito para que nunca se confunda con lo que
+/// la app ya hace de verdad.
+class PosibilidadesFuturasSeccion extends StatelessWidget {
+  const PosibilidadesFuturasSeccion({required this.posibilidades, super.key});
+  final List<PosibilidadFutura> posibilidades;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    if (posibilidades.isEmpty) {
+      return Text('Ninguna sugerida todavía.', style: TextStyle(color: colors.textMuted));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, size: 14, color: colors.textMuted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Ideas de la IA sobre huecos o extensiones posibles -- todavía NO implementadas.',
+                style: TextStyle(color: colors.textMuted, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ...posibilidades.map(
+          (p) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(p.nombre, style: Theme.of(context).textTheme.titleSmall),
+                if (p.descripcion.isNotEmpty) Text(p.descripcion),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class ArquitecturaSeccion extends StatelessWidget {
+  const ArquitecturaSeccion({required this.a, super.key});
   final SeccionArquitectura a;
 
   @override
@@ -242,8 +321,8 @@ class _Arquitectura extends StatelessWidget {
   }
 }
 
-class _SeccionHallazgos extends StatelessWidget {
-  const _SeccionHallazgos({required this.resumen, required this.hallazgos});
+class HallazgosSeccion extends StatelessWidget {
+  const HallazgosSeccion({required this.resumen, required this.hallazgos, super.key});
   final String resumen;
   final List<HallazgoExpediente> hallazgos;
 
@@ -285,8 +364,8 @@ class _SeccionHallazgos extends StatelessWidget {
 
 String _dinero(num v, String moneda) => '${v.toStringAsFixed(0)} $moneda';
 
-class _ValoracionEconomica extends StatelessWidget {
-  const _ValoracionEconomica({required this.v});
+class ValoracionEconomicaSeccion extends StatelessWidget {
+  const ValoracionEconomicaSeccion({required this.v, super.key});
   final SeccionValoracionEconomica v;
 
   @override
@@ -341,8 +420,8 @@ class _ValoracionEconomica extends StatelessWidget {
   }
 }
 
-class _PotencialUsuarios extends StatelessWidget {
-  const _PotencialUsuarios({required this.p});
+class PotencialUsuariosSeccion extends StatelessWidget {
+  const PotencialUsuariosSeccion({required this.p, super.key});
   final SeccionPotencialUsuarios p;
 
   @override
@@ -397,8 +476,8 @@ class _PotencialUsuarios extends StatelessWidget {
   }
 }
 
-class _ProgresoValor extends StatelessWidget {
-  const _ProgresoValor({required this.p});
+class ProgresoValorSeccion extends StatelessWidget {
+  const ProgresoValorSeccion({required this.p, super.key});
   final SeccionProgresoValor p;
 
   @override

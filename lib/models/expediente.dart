@@ -199,6 +199,22 @@ class HallazgoExpediente {
   );
 }
 
+/// Especulativo por diseño -- nunca se mezcla con FuncionalidadExpediente
+/// (que exige evidencia de código real). Sin "confianza" a propósito: no
+/// existe evidencia que verificar, es una idea de la IA sobre un hueco
+/// obvio o una extensión natural de lo que ya existe.
+class PosibilidadFutura {
+  const PosibilidadFutura({required this.nombre, this.descripcion = ''});
+
+  final String nombre;
+  final String descripcion;
+
+  Map<String, dynamic> toJson() => {'nombre': nombre, 'descripcion': descripcion};
+
+  factory PosibilidadFutura.fromJson(Map<String, dynamic> json) =>
+      PosibilidadFutura(nombre: _texto(json['nombre']), descripcion: _texto(json['descripcion']));
+}
+
 class SeccionArquitectura {
   const SeccionArquitectura({this.resumen = '', List<String>? patrones, List<String>? tecnologias})
     : patrones = patrones ?? const [],
@@ -438,6 +454,7 @@ class Expediente {
     this.descripcionGeneral = const SeccionDescripcionGeneral(),
     List<PantallaExpediente>? pantallas,
     List<FuncionalidadExpediente>? catalogoFuncionalidades,
+    List<PosibilidadFutura>? posibilidadesFuturas,
     this.arquitectura = const SeccionArquitectura(),
     this.calidad = const SeccionCalidad(),
     this.seguridad = const SeccionSeguridad(),
@@ -449,7 +466,8 @@ class Expediente {
     required this.updatedAt,
     this.confirmadoEn,
   }) : pantallas = pantallas ?? [],
-       catalogoFuncionalidades = catalogoFuncionalidades ?? [];
+       catalogoFuncionalidades = catalogoFuncionalidades ?? [],
+       posibilidadesFuturas = posibilidadesFuturas ?? [];
 
   final String id;
   final String proyectoId;
@@ -460,6 +478,7 @@ class Expediente {
   final SeccionDescripcionGeneral descripcionGeneral;
   final List<PantallaExpediente> pantallas;
   final List<FuncionalidadExpediente> catalogoFuncionalidades;
+  final List<PosibilidadFutura> posibilidadesFuturas;
   final SeccionArquitectura arquitectura;
   final SeccionCalidad calidad;
   final SeccionSeguridad seguridad;
@@ -487,6 +506,7 @@ class Expediente {
     descripcionGeneral: descripcionGeneral,
     pantallas: pantallas ?? this.pantallas,
     catalogoFuncionalidades: catalogoFuncionalidades,
+    posibilidadesFuturas: posibilidadesFuturas,
     arquitectura: arquitectura,
     calidad: calidad,
     seguridad: seguridad,
@@ -507,6 +527,7 @@ class Expediente {
     'descripcionGeneral': descripcionGeneral.toJson(),
     'pantallas': pantallas.map((p) => p.toJson()).toList(),
     'catalogoFuncionalidades': catalogoFuncionalidades.map((f) => f.toJson()).toList(),
+    'posibilidadesFuturas': posibilidadesFuturas.map((p) => p.toJson()).toList(),
     'arquitectura': arquitectura.toJson(),
     'calidad': calidad.toJson(),
     'seguridad': seguridad.toJson(),
@@ -538,6 +559,9 @@ class Expediente {
         .toList(),
     catalogoFuncionalidades: (json['catalogoFuncionalidades'] as List<dynamic>? ?? [])
         .map((f) => FuncionalidadExpediente.fromJson(Map<String, dynamic>.from(f as Map)))
+        .toList(),
+    posibilidadesFuturas: (json['posibilidadesFuturas'] as List<dynamic>? ?? [])
+        .map((p) => PosibilidadFutura.fromJson(Map<String, dynamic>.from(p as Map)))
         .toList(),
     arquitectura: SeccionArquitectura.fromJson(_mapa(json['arquitectura'])),
     calidad: SeccionCalidad.fromJson(_mapa(json['calidad'])),
