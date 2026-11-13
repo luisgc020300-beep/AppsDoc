@@ -175,8 +175,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Confirmado'), findsOneWidget);
-    expect(find.ancestor(of: find.text('Generar de nuevo'), matching: find.byWidgetPredicate((w) => w is FilledButton)), findsOneWidget);
-    expect(find.ancestor(of: find.text('Corregir descripción'), matching: find.byWidgetPredicate((w) => w is OutlinedButton)), findsOneWidget);
+    // find.widgetWithText compara runtimeType exacto, y .tonalIcon/.icon
+    // construyen subclases privadas -- ButtonStyleButton es la superclase
+    // común a FilledButton/OutlinedButton/TextButton, así que el test no
+    // depende de cuál de los tres se use para cada acción.
+    Finder botonConTexto(String texto) =>
+        find.ancestor(of: find.text(texto), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
+    expect(botonConTexto('Galería de capturas'), findsOneWidget);
+    expect(botonConTexto('Generar de nuevo'), findsOneWidget);
+    expect(botonConTexto('Corregir descripción'), findsOneWidget);
   });
 
   testWidgets('añadir una funcionalidad desde la sección la hace aparecer en la lista', (tester) async {

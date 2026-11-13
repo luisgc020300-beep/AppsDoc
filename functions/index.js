@@ -617,6 +617,26 @@ const ARCHIVOS_CONFIGURACION = [
   '.firebaserc',
 ];
 
+/// Nombres de carpeta reconocidos por módulo -- por SEGMENTO exacto de la
+/// ruta, no por prefijo desde la raíz. Esto es deliberado: muchos
+/// repositorios reales (sobre todo monorepos, p.ej. "packages/ui_core/
+/// lib/screens/login.dart") no tienen "lib/screens" como prefijo del
+/// repo, sino en cualquier profundidad. Un prefijo rígido (como asumía la
+/// primera versión de esta función) clasifica TODO como "otros" en esos
+/// casos y deja el expediente sin nada que analizar -- justo el fallo que
+/// se detectó analizando un monorepo real.
+const SEGMENTOS_PANTALLAS = ['screens', 'pantallas', 'pestañas', 'pestanas', 'pages', 'views'];
+const SEGMENTOS_SERVICIOS = ['services', 'servicios'];
+const SEGMENTOS_MODELOS = ['models', 'modelos', 'entities'];
+const SEGMENTOS_BACKEND = ['functions', 'backend', 'server', 'api'];
+const SEGMENTOS_TESTS = ['test', 'tests', 'spec', '__tests__'];
+const SEGMENTOS_DOCUMENTACION = ['docs', 'doc'];
+
+function _tieneSegmento(ruta, segmentos) {
+  const partes = ruta.split('/');
+  return segmentos.some((s) => partes.includes(s));
+}
+
 /// Pura: clasifica cada ruta (ya filtrada de irrelevantes, nunca vuelve a
 /// mirar el denylist por su cuenta) en un módulo lógico para el pipeline por
 /// etapas de `generarExpediente` (Fase 10). Toda ruta de entrada acaba en
@@ -636,25 +656,45 @@ function _agruparPorModulo(rutas) {
   for (const ruta of rutas) {
     const r = ruta.toLowerCase();
     const nombreBase = r.split('/').pop();
-    if (r.startsWith('lib/screens/') || r.startsWith('lib/pestañas/') || r.startsWith('lib/pestanas/')) {
-      grupos.pantallas.push(ruta);
-    } else if (r.startsWith('lib/services/')) {
-      grupos.servicios.push(ruta);
-    } else if (r.startsWith('lib/models/')) {
-      grupos.modelos.push(ruta);
-    } else if (r.startsWith('functions/')) {
-      grupos.backend.push(ruta);
-    } else if (r.startsWith('test/') || r.startsWith('functions-tests/')) {
+    // Orden deliberado: "tests"/"documentación"/"configuración" se
+    // comprueban ANTES que pantallas/servicios/modelos/backend porque son
+    // señales más específicas (nombre de archivo, carpeta dedicada) -- sin
+    // este orden, "test/models/x_test.dart" caería en "modelos" solo
+    // porque "models" aparece como segmento, perdiendo que en realidad es
+    // un test.
+    if (_tieneSegmento(r, SEGMENTOS_TESTS) || nombreBase.includes('_test.') || nombreBase.includes('.test.')) {
       grupos.tests.push(ruta);
-    } else if (nombreBase.startsWith('readme') || r.startsWith('docs/') || r.startsWith('doc/')) {
+    } else if (nombreBase.startsWith('readme') || _tieneSegmento(r, SEGMENTOS_DOCUMENTACION)) {
       grupos.documentacion.push(ruta);
     } else if (ARCHIVOS_CONFIGURACION.includes(nombreBase)) {
       grupos.configuracion.push(ruta);
+    } else if (_tieneSegmento(r, SEGMENTOS_PANTALLAS)) {
+      grupos.pantallas.push(ruta);
+    } else if (_tieneSegmento(r, SEGMENTOS_SERVICIOS)) {
+      grupos.servicios.push(ruta);
+    } else if (_tieneSegmento(r, SEGMENTOS_MODELOS)) {
+      grupos.modelos.push(ruta);
+    } else if (_tieneSegmento(r, SEGMENTOS_BACKEND)) {
+      grupos.backend.push(ruta);
     } else {
       grupos.otros.push(ruta);
     }
   }
   return grupos;
+}
+
+/// Pura: decide qué módulos consiguen su propia llamada a Anthropic. Por
+/// defecto, los módulos "con nombre" de MODULOS_CON_LLAMADA_PROPIA que
+/// tengan contenido -- "tests"/"otros" nunca aportan suficiente señal
+/// propia. PERO si ninguno de los módulos con nombre tiene nada (la
+/// heurística de carpetas no reconoció la estructura de este repo en
+/// absoluto), cae a analizar "otros" como último recurso: un expediente
+/// vacío por un fallo de categorización es peor que uno con una
+/// clasificación menos fina.
+function _elegirModulosAProcesar(grupos) {
+  const conNombre = MODULOS_CON_LLAMADA_PROPIA.filter((m) => (grupos[m] || []).length > 0);
+  if (conNombre.length > 0) return conNombre;
+  return (grupos.otros || []).length > 0 ? ['otros'] : [];
 }
 
 /// Los tarballs de GitHub anteponen un prefijo "{owner}-{repo}-{sha}/" a
@@ -1237,7 +1277,10 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
       descripcionGeneral: {
         type: 'object',
         properties: {
-          resumen: { type: 'string' },
+          resumen: {
+            type: 'string',
+            description: 'En lenguaje cotidiano, para alguien que nunca ha visto la app: qué es y para qué sirve, como se lo explicarías a un amigo.',
+          },
           propuestaValor: { type: 'string' },
           publicoObjetivo: { type: 'string' },
           estadoMadurez: { type: 'string', description: 'p.ej. "prototipo", "en desarrollo activo", "listo para producción".' },
@@ -1250,7 +1293,10 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
           type: 'object',
           properties: {
             nombre: { type: 'string' },
-            descripcionFuncion: { type: 'string' },
+            descripcionFuncion: {
+              type: 'string',
+              description: 'Qué hace esta pantalla desde el punto de vista de quien la usa, en una frase sencilla -- no detalles de implementación.',
+            },
             archivoPrincipal: { type: 'string' },
             navegacion: { type: 'string', description: 'Cómo se llega a esta pantalla y a dónde lleva.' },
             pantallasRelacionadas: { type: 'array', items: { type: 'string' } },
@@ -1263,8 +1309,16 @@ const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
         items: {
           type: 'object',
           properties: {
-            nombre: { type: 'string' },
-            descripcion: { type: 'string' },
+            nombre: {
+              type: 'string',
+              description:
+                'Una acción concreta que la persona usuaria puede hacer, en lenguaje cotidiano -- p.ej. "Añadir una tarea", "Marcar un pago como pagado", "Invitar a un profesional". Nunca el nombre de una clase, pantalla técnica o módulo interno.',
+            },
+            descripcion: {
+              type: 'string',
+              description:
+                'Explica esta función como si se la contaras a alguien sin conocimientos técnicos, en una o dos frases: qué consigue la persona usuaria al hacerlo, con un ejemplo concreto de cuándo la usaría. Nada de jerga de desarrollo (nombres de clases, "CRM", "endpoint", "Cloud Function", siglas internas...) salvo que forme parte del vocabulario normal de quien usa la app.',
+            },
             confianza: {
               type: 'string',
               enum: CONFIANZAS_EXPEDIENTE_VALIDAS,
@@ -1348,6 +1402,7 @@ Recibes resúmenes YA CONDENSADOS de cada módulo del repositorio (pantallas, se
 
 REGLAS ESTRICTAS:
 - Responde SIEMPRE llamando a la herramienta "registrar_expediente" -- nunca con texto libre.
+- Descripción general, pantallas y catálogo de funcionalidades: escribe como si le explicaras la aplicación, paso a paso, a una persona sin conocimientos técnicos. El nombre de cada funcionalidad es una ACCIÓN que alguien puede hacer ("Añadir una tarea", "Marcar un pago como pagado", "Invitar a un profesional"), nunca el nombre de una clase, pantalla o módulo interno. Cada descripción incluye un ejemplo concreto de cuándo se usaría. Nada de jerga de desarrollo (nombres de clases, "endpoint", "CRM", "Cloud Function", siglas internas) salvo que sea vocabulario normal para quien usa la app -- esa jerga sí es bienvenida, y necesaria, en la sección de Arquitectura.
 - Catálogo de funcionalidades: usa "verificada" únicamente con evidencia clara e inequívoca; "aparentementeImplementada" si el código parece completo pero no está verificado; "detectada" si solo hay indicios; "pendiente" si no hay evidencia suficiente.
 - Seguridad: distingue problemas confirmados de riesgos potenciales. Nunca afirmes que la aplicación es segura solo porque no detectaste problemas -- dilo explícitamente como limitación si es el caso.
 - Valoración económica y potencial de usuarios son estimaciones razonadas a partir de lo que ves (complejidad, tecnologías, alcance) y tu conocimiento general de mercado -- NUNCA inventes clientes, usuarios, ventas o demanda reales. Cada escenario (conservador/intermedio/optimista) lleva su propio razonamiento. "supuestos" y "limitaciones" son obligatorios y deben ser honestos sobre qué información falta. Usa "nivelConfianza" baja si hay poca información -- no la infles.
@@ -1567,6 +1622,7 @@ exports.generarExpediente = onCall(
     const truncadoArbol = todasEntradas.length >= MAX_RUTAS_ARBOL;
 
     const grupos = _agruparPorModulo(rutasTexto);
+    const modulosAProcesar = _elegirModulosAProcesar(grupos);
 
     const apiKey = _anthropicKey.value();
     if (!apiKey) throw new HttpsError('internal', 'API key no configurada en el servidor.');
@@ -1576,7 +1632,7 @@ exports.generarExpediente = onCall(
     const resumenesPorModulo = {};
     // Secuencial (no Promise.all): acota memoria y tasa de peticiones a
     // Anthropic en vez de disparar hasta 6 llamadas en paralelo.
-    for (const nombreModulo of MODULOS_CON_LLAMADA_PROPIA) {
+    for (const nombreModulo of modulosAProcesar) {
       const rutasModulo = grupos[nombreModulo] || [];
       if (rutasModulo.length === 0) continue;
       const rutasAIncluir = _priorizarArchivos(rutasModulo, MAX_ARCHIVOS_POR_MODULO);
@@ -1659,6 +1715,7 @@ module.exports._extraerContenidoTar = _extraerContenidoTar;
 module.exports._construirPromptAnalisis = _construirPromptAnalisis;
 module.exports._parsearAnalisisRepositorio = _parsearAnalisisRepositorio;
 module.exports._agruparPorModulo = _agruparPorModulo;
+module.exports._elegirModulosAProcesar = _elegirModulosAProcesar;
 module.exports._construirPromptModulo = _construirPromptModulo;
 module.exports._parsearAnalisisModulo = _parsearAnalisisModulo;
 module.exports._construirPromptSintesis = _construirPromptSintesis;

@@ -915,13 +915,25 @@ class _SeccionExpediente extends StatelessWidget {
                 label: const Text('Generar expediente'),
               ),
             ] else ...[
-              ExpedienteDetalleWidget(expediente: actual),
-              const SizedBox(height: 12),
+              // Los botones de acción van ANTES del contenido a propósito --
+              // el expediente puede ser largo (9 secciones), y "Galería de
+              // capturas" escondido al final de todo era invisible en la
+              // práctica sin desplazarse por todo el documento.
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
                   FilledButton.tonalIcon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GaleriaCapturasScreen(proyectoId: proyecto.id, pantallas: actual.pantallas),
+                      ),
+                    ),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Galería de capturas'),
+                  ),
+                  OutlinedButton.icon(
                     onPressed: () =>
                         Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteRevisionScreen(proyecto: proyecto))),
                     icon: const Icon(Icons.refresh),
@@ -936,22 +948,14 @@ class _SeccionExpediente extends StatelessWidget {
                     label: const Text('Corregir descripción'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => GaleriaCapturasScreen(proyectoId: proyecto.id, pantallas: actual.pantallas),
-                      ),
-                    ),
-                    icon: const Icon(Icons.photo_library_outlined),
-                    label: const Text('Galería de capturas'),
-                  ),
-                  OutlinedButton.icon(
                     onPressed: null,
                     icon: const Icon(Icons.picture_as_pdf_outlined),
                     label: const Text('Exportar a PDF (próximamente)'),
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+              ExpedienteDetalleWidget(expediente: actual),
             ],
           ],
         );
