@@ -1192,7 +1192,7 @@ const HERRAMIENTA_ANALISIS_MODULO = {
 };
 
 function _systemAnalisisModulo(nombreModulo) {
-  return `Eres un auditor técnico senior. Analiza SOLO el módulo "${nombreModulo}" de una aplicación de software -- no tienes el resto del repositorio, no asumas nada sobre lo que no ves aquí. Usa SIEMPRE la herramienta "registrar_analisis_modulo" para responder -- nunca texto libre. Resume qué hace este módulo, enumera los elementos concretos detectados citando evidencia de archivo real, y lista las tecnologías que detectes en este módulo. No inventes nada que no esté respaldado por el código que ves.`;
+  return `Eres un auditor técnico senior. Analiza SOLO el módulo "${nombreModulo}" de una aplicación de software -- no tienes el resto del repositorio, no asumas nada sobre lo que no ves aquí. Responde llamando directamente a la herramienta "registrar_analisis_modulo", sin ningún texto libre antes ni después -- no expliques tu razonamiento fuera de la herramienta, eso agota el presupuesto de respuesta antes de completarla. Resume qué hace este módulo, enumera los elementos concretos detectados citando evidencia de archivo real, y lista las tecnologías que detectes en este módulo. Sé conciso: prioriza completar la llamada a la herramienta sobre la exhaustividad. No inventes nada que no esté respaldado por el código que ves.`;
 }
 
 /// Pura: prompt de una etapa de módulo -- solo el contenido de ESE módulo,
@@ -1401,7 +1401,7 @@ const SYSTEM_SINTESIS_EXPEDIENTE = `Eres un analista senior preparando el EXPEDI
 Recibes resúmenes YA CONDENSADOS de cada módulo del repositorio (pantallas, servicios, modelos, backend, configuración, documentación) -- no el código crudo. Básate solo en esos resúmenes y en el contexto que te demos (progreso ya calculado, expediente anterior si existe).
 
 REGLAS ESTRICTAS:
-- Responde SIEMPRE llamando a la herramienta "registrar_expediente" -- nunca con texto libre.
+- Responde llamando directamente a la herramienta "registrar_expediente", sin ningún texto libre antes ni después -- no expliques tu razonamiento fuera de la herramienta, eso agota el presupuesto de respuesta antes de completarla. Si el espacio aprieta, prioriza completar todas las secciones de forma breve sobre desarrollar unas pocas en detalle y dejar el resto vacío.
 - Descripción general, pantallas y catálogo de funcionalidades: escribe como si le explicaras la aplicación, paso a paso, a una persona sin conocimientos técnicos. El nombre de cada funcionalidad es una ACCIÓN que alguien puede hacer ("Añadir una tarea", "Marcar un pago como pagado", "Invitar a un profesional"), nunca el nombre de una clase, pantalla o módulo interno. Cada descripción incluye un ejemplo concreto de cuándo se usaría. Nada de jerga de desarrollo (nombres de clases, "endpoint", "CRM", "Cloud Function", siglas internas) salvo que sea vocabulario normal para quien usa la app -- esa jerga sí es bienvenida, y necesaria, en la sección de Arquitectura.
 - Catálogo de funcionalidades: usa "verificada" únicamente con evidencia clara e inequívoca; "aparentementeImplementada" si el código parece completo pero no está verificado; "detectada" si solo hay indicios; "pendiente" si no hay evidencia suficiente.
 - Seguridad: distingue problemas confirmados de riesgos potenciales. Nunca afirmes que la aplicación es segura solo porque no detectaste problemas -- dilo explícitamente como limitación si es el caso.
@@ -1649,7 +1649,7 @@ exports.generarExpediente = onCall(
       const promptModulo = _construirPromptModulo({ nombreModulo, archivosConContenido: contenidos });
       const dataModulo = await _llamarAnthropic(apiKey, {
         model: MODELO,
-        max_tokens: 1536,
+        max_tokens: 4096,
         system: _systemAnalisisModulo(nombreModulo),
         tools: [HERRAMIENTA_ANALISIS_MODULO],
         tool_choice: { type: 'auto' },
@@ -1687,7 +1687,7 @@ exports.generarExpediente = onCall(
 
     const dataSintesis = await _llamarAnthropic(apiKey, {
       model: MODELO,
-      max_tokens: 8192,
+      max_tokens: 16000,
       system: SYSTEM_SINTESIS_EXPEDIENTE,
       tools: [HERRAMIENTA_SINTESIS_EXPEDIENTE],
       tool_choice: { type: 'auto' },
