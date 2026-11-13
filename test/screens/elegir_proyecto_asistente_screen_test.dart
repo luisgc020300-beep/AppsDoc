@@ -5,6 +5,7 @@ import 'package:appsdoc/services/auditoria_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
+import 'package:appsdoc/services/mensaje_asistente_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:appsdoc/services/tarea_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
@@ -27,6 +28,8 @@ void main() {
     TareaService.debugUidOverride = 'uid-test';
     AuditoriaService.debugFirestoreOverride = db;
     AuditoriaService.debugUidOverride = 'uid-test';
+    MensajeAsistenteService.debugFirestoreOverride = db;
+    MensajeAsistenteService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -42,6 +45,8 @@ void main() {
     TareaService.debugUidOverride = null;
     AuditoriaService.debugFirestoreOverride = null;
     AuditoriaService.debugUidOverride = null;
+    MensajeAsistenteService.debugFirestoreOverride = null;
+    MensajeAsistenteService.debugUidOverride = null;
   });
 
   Widget envolver(Widget child) => MaterialApp(theme: buildAppsDocLightTheme(), home: child);

@@ -16,6 +16,7 @@ import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/github_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
 import 'package:appsdoc/services/idea_service.dart';
+import 'package:appsdoc/services/mensaje_asistente_service.dart';
 import 'package:appsdoc/services/proyecto_service.dart';
 import 'package:appsdoc/services/tarea_service.dart';
 import 'package:appsdoc/theme/design_tokens.dart';
@@ -44,6 +45,8 @@ void main() {
     HistorialService.debugUidOverride = 'uid-test';
     ExpedienteService.debugFirestoreOverride = db;
     ExpedienteService.debugUidOverride = 'uid-test';
+    MensajeAsistenteService.debugFirestoreOverride = db;
+    MensajeAsistenteService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
@@ -51,6 +54,8 @@ void main() {
     ExpedienteService.debugFirestoreOverride = null;
     ExpedienteService.debugUidOverride = null;
     ExpedienteService.debugCallableOverride = null;
+    MensajeAsistenteService.debugFirestoreOverride = null;
+    MensajeAsistenteService.debugUidOverride = null;
     ProyectoService.debugFirestoreOverride = null;
     ProyectoService.debugUidOverride = null;
     FuncionalidadService.debugFirestoreOverride = null;

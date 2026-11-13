@@ -1,18 +1,22 @@
 // lib/screens/asistente/asistente_screen.dart
 //
-// Chat efímero: las preguntas y respuestas viven solo en esta pantalla
-// (no se guardan en Firestore) -- cada pregunta se envía con el contexto
-// completo del proyecto ya recalculado en el backend, así que no hace
-// falta mantener historial de conversación en el cliente ni en el
-// servidor. Lo único que deja rastro permanente es confirmar una
-// propuesta desde "Pegar auditoría", que usa los servicios de siempre y
-// por tanto ya queda en el historial del proyecto.
+// El historial de la conversación se persiste en Firestore
+// (MensajeAsistenteService) -- sobrevive a salir y volver a entrar. Cada
+// pregunta se envía con el contexto completo del proyecto ya recalculado
+// en el backend, así que no hace falta reenviar el historial anterior a la
+// IA: cada turno sigue siendo independiente, solo la UI recuerda la
+// conversación. "Nueva conversación" borra el historial (irreversible, con
+// confirmación). Lo único que además deja rastro permanente en el propio
+// proyecto es confirmar una propuesta desde "Pegar auditoría", que usa los
+// servicios de siempre y por tanto ya queda en el historial del proyecto.
 import 'package:flutter/material.dart';
 
 import '../../models/github_repo_info.dart';
+import '../../models/mensaje_asistente.dart';
 import '../../models/proyecto.dart';
 import '../../services/ai_assistant_service.dart';
 import '../../services/github_service.dart';
+import '../../services/mensaje_asistente_service.dart';
 import '../../theme/design_tokens.dart';
 import 'pegar_auditoria_screen.dart';
 
@@ -25,23 +29,22 @@ class AsistenteScreen extends StatefulWidget {
   State<AsistenteScreen> createState() => _AsistenteScreenState();
 }
 
-class _MensajeChat {
-  const _MensajeChat({required this.texto, required this.esUsuario, this.esError = false});
-
-  final String texto;
-  final bool esUsuario;
-  final bool esError;
-}
-
 const _preguntasSugeridas = ['¿Por dónde iba?', '¿Qué falta para publicar?', '¿Qué debería hacer ahora?'];
 
 class _AsistenteScreenState extends State<AsistenteScreen> {
-  final _mensajes = <_MensajeChat>[];
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   bool _enviando = false;
   GithubRepoInfo? _githubResumen;
   bool _githubResumenIntentado = false;
+
+  // Creado UNA sola vez, no dentro de build(): si StreamBuilder recibe una
+  // instancia de Stream nueva en cada reconstrucción (p.ej. cada vez que
+  // _enviando cambia), cancela y vuelve a suscribirse cada vez -- con
+  // fake_cloud_firestore eso puede perder la emisión final de una
+  // suscripción cancelada a destiempo (confirmado al depurar que "Nueva
+  // conversación" a veces no refrescaba la pantalla).
+  late final Stream<List<MensajeAsistente>> _mensajesStream = MensajeAsistenteService.streamMensajes(widget.proyecto.id);
 
   @override
   void dispose() {
@@ -79,11 +82,9 @@ class _AsistenteScreenState extends State<AsistenteScreen> {
     final texto = (textoSugerido ?? _controller.text).trim();
     if (texto.isEmpty || _enviando) return;
 
-    setState(() {
-      _mensajes.add(_MensajeChat(texto: texto, esUsuario: true));
-      _controller.clear();
-      _enviando = true;
-    });
+    _controller.clear();
+    setState(() => _enviando = true);
+    await MensajeAsistenteService.agregar(proyectoId: widget.proyecto.id, texto: texto, esUsuario: true);
     _scrollAlFinal();
 
     await _asegurarGithubResumen();
@@ -94,13 +95,29 @@ class _AsistenteScreenState extends State<AsistenteScreen> {
         pregunta: texto,
         githubResumen: _githubResumen,
       );
-      setState(() => _mensajes.add(_MensajeChat(texto: respuesta, esUsuario: false)));
+      await MensajeAsistenteService.agregar(proyectoId: widget.proyecto.id, texto: respuesta, esUsuario: false);
     } on AiAssistantException catch (e) {
-      setState(() => _mensajes.add(_MensajeChat(texto: e.mensaje, esUsuario: false, esError: true)));
+      await MensajeAsistenteService.agregar(proyectoId: widget.proyecto.id, texto: e.mensaje, esUsuario: false, esError: true);
     } finally {
-      setState(() => _enviando = false);
+      if (mounted) setState(() => _enviando = false);
     }
     _scrollAlFinal();
+  }
+
+  Future<void> _nuevaConversacion() async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Empezar una conversación nueva?'),
+        content: const Text('Se borrará todo el historial de este chat. Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Empezar de nuevo')),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+    await MensajeAsistenteService.limpiar(widget.proyecto.id);
   }
 
   @override
@@ -110,6 +127,11 @@ class _AsistenteScreenState extends State<AsistenteScreen> {
       appBar: AppBar(
         title: Text('Asistente · ${widget.proyecto.nombre}'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_outlined),
+            tooltip: 'Nueva conversación',
+            onPressed: _nuevaConversacion,
+          ),
           IconButton(
             icon: const Icon(Icons.content_paste_outlined),
             tooltip: 'Pegar auditoría',
@@ -124,19 +146,25 @@ class _AsistenteScreenState extends State<AsistenteScreen> {
         child: Column(
           children: [
             Expanded(
-              child: _mensajes.isEmpty
-                  ? _EstadoVacio(onTapSugerencia: _enviar)
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _mensajes.length + (_enviando ? 1 : 0),
-                      itemBuilder: (context, i) {
-                        if (i >= _mensajes.length) {
-                          return const _BurbujaPensando();
-                        }
-                        return _BurbujaMensaje(mensaje: _mensajes[i]);
-                      },
-                    ),
+              child: StreamBuilder<List<MensajeAsistente>>(
+                stream: _mensajesStream,
+                builder: (context, snapshot) {
+                  final mensajes = snapshot.data;
+                  if (mensajes == null) return const Center(child: CircularProgressIndicator());
+                  if (mensajes.isEmpty && !_enviando) return _EstadoVacio(onTapSugerencia: _enviar);
+                  return ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: mensajes.length + (_enviando ? 1 : 0),
+                    itemBuilder: (context, i) {
+                      if (i >= mensajes.length) {
+                        return const _BurbujaPensando();
+                      }
+                      return _BurbujaMensaje(mensaje: mensajes[i]);
+                    },
+                  );
+                },
+              ),
             ),
             SafeArea(
               top: false,
@@ -217,7 +245,7 @@ class _EstadoVacio extends StatelessWidget {
 class _BurbujaMensaje extends StatelessWidget {
   const _BurbujaMensaje({required this.mensaje});
 
-  final _MensajeChat mensaje;
+  final MensajeAsistente mensaje;
 
   @override
   Widget build(BuildContext context) {
