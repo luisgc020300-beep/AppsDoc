@@ -1623,6 +1623,11 @@ exports.generarExpediente = onCall(
 
     const grupos = _agruparPorModulo(rutasTexto);
     const modulosAProcesar = _elegirModulosAProcesar(grupos);
+    console.log(
+      `[generarExpediente][diag] proyecto=${proyectoId} rutasTotal=${todasLasRutas.length} rutasTexto=${rutasTexto.length} ` +
+        `grupos=${JSON.stringify(Object.fromEntries(Object.entries(grupos).map(([k, v]) => [k, v.length])))} ` +
+        `modulosAProcesar=${JSON.stringify(modulosAProcesar)}`,
+    );
 
     const apiKey = _anthropicKey.value();
     if (!apiKey) throw new HttpsError('internal', 'API key no configurada en el servidor.');
@@ -1651,6 +1656,10 @@ exports.generarExpediente = onCall(
         messages: [{ role: 'user', content: promptModulo }],
       });
       resumenesPorModulo[nombreModulo] = _parsearAnalisisModulo(dataModulo.content);
+      console.log(
+        `[generarExpediente][diag] modulo=${nombreModulo} rutasModulo=${rutasModulo.length} archivosIncluidos=${contenidos.size} ` +
+          `stopReason=${dataModulo.stop_reason} elementosDetectados=${resumenesPorModulo[nombreModulo].elementosDetectados.length}`,
+      );
     }
 
     const truncado = truncadoArbol || archivosOmitidosTotal > 0;
@@ -1678,14 +1687,34 @@ exports.generarExpediente = onCall(
 
     const dataSintesis = await _llamarAnthropic(apiKey, {
       model: MODELO,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: SYSTEM_SINTESIS_EXPEDIENTE,
       tools: [HERRAMIENTA_SINTESIS_EXPEDIENTE],
       tool_choice: { type: 'auto' },
       messages: [{ role: 'user', content: promptSintesis }],
     });
 
+    console.log(
+      `[generarExpediente][diag] sintesis stopReason=${dataSintesis.stop_reason} modulosConResumen=${Object.keys(resumenesPorModulo).length}`,
+    );
+    // La síntesis cubre 8 secciones grandes en una sola llamada -- si el
+    // modelo se queda sin tokens a mitad de generación, el JSON del tool_use
+    // puede acabar incompleto y las secciones finales (calidad/seguridad/
+    // valoración) llegan vacías sin que _parsearExpediente lo note (solo
+    // exige "descripcionGeneral.resumen"). Mejor fallar con un mensaje claro
+    // que guardar un expediente a medias disfrazado de completo.
+    if (dataSintesis.stop_reason === 'max_tokens') {
+      throw new HttpsError(
+        'internal',
+        'La respuesta de la IA se cortó por longitud antes de completar el expediente. Inténtalo de nuevo.',
+      );
+    }
     const expediente = _parsearExpediente(dataSintesis.content, { progresoPorcentaje });
+    console.log(
+      `[generarExpediente][diag] parseado pantallas=${expediente.pantallas.length} catalogo=${expediente.catalogoFuncionalidades.length} ` +
+        `arquitecturaResumen=${expediente.arquitectura.resumen ? 'si' : 'no'} calidadHallazgos=${expediente.calidad.hallazgos.length} ` +
+        `seguridadHallazgos=${expediente.seguridad.hallazgos.length} nivelConfianzaValoracion=${expediente.valoracionEconomica.nivelConfianza}`,
+    );
 
     return {
       ...expediente,
