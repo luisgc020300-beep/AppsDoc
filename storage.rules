@@ -3,13 +3,22 @@ rules_version = '2';
 // Espejo de firestore.rules: aislamiento por uid, una sola regla recursiva.
 // capturas/{uid}/{proyectoId}/{pantallaClave}/{capturaId}.jpg -- solo
 // imágenes, hasta 10 MB por archivo.
+//
+// read/create/update/delete van separados a propósito: request.resource
+// representa el archivo tal como quedaría TRAS la operación, y es null
+// tanto en una lectura como en un borrado -- "write" agrupa create+update+
+// delete, así que comprobar request.resource.size/.contentType dentro de
+// "allow write" rompería también el borrado (CapturaService.eliminar()),
+// no solo la lectura. Las comprobaciones de tamaño/tipo de contenido solo
+// tienen sentido -- y solo están disponibles -- en create/update.
 service firebase.storage {
   match /b/{bucket}/o {
     match /capturas/{uid}/{allPaths=**} {
-      allow read, write: if request.auth != null
-                          && request.auth.uid == uid
-                          && request.resource.size < 10 * 1024 * 1024
-                          && request.resource.contentType.matches('image/.*');
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+                             && request.auth.uid == uid
+                             && request.resource.size < 10 * 1024 * 1024
+                             && request.resource.contentType.matches('image/.*');
     }
   }
 }
