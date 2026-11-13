@@ -32,3 +32,27 @@ test('un límite de 1 permite exactamente una petición y bloquea la segunda', (
   const segunda = _evaluarLimite(primera.nuevoContador, 1);
   assert.equal(segunda.permitido, false);
 });
+
+test('peso>1: por debajo del límite, permite e incrementa el contador en "peso" unidades', () => {
+  const r = _evaluarLimite(5, 40, 10);
+  assert.equal(r.permitido, true);
+  assert.equal(r.nuevoContador, 15);
+});
+
+test('peso>1: si "actual + peso" supera el límite, bloquea sin incrementar', () => {
+  const r = _evaluarLimite(35, 40, 10);
+  assert.equal(r.permitido, false);
+  assert.equal(r.nuevoContador, 35);
+});
+
+test('peso>1: justo en el límite exacto, permite', () => {
+  const r = _evaluarLimite(30, 40, 10);
+  assert.equal(r.permitido, true);
+  assert.equal(r.nuevoContador, 40);
+});
+
+test('sin peso explícito (llamadas existentes de 2 argumentos) se comporta igual que antes', () => {
+  const conDosArgumentos = _evaluarLimite(5, 40);
+  const conPesoUnoExplicito = _evaluarLimite(5, 40, 1);
+  assert.deepEqual(conDosArgumentos, conPesoUnoExplicito);
+});

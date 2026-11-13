@@ -82,19 +82,24 @@ function _validarExtraccionInput(data) {
 // transacción de Firestore que la envuelve es la única parte con I/O.
 // ---------------------------------------------------------------------------
 
-function _evaluarLimite(peticionesHoy, limiteDiario) {
+// `peso` deja que una operación mucho más cara que una pregunta suelta (p.ej.
+// generarExpediente, con varias llamadas a Anthropic dentro) consuma más de
+// una unidad de la cuota diaria compartida. Por defecto 1, así que las
+// llamadas existentes (sin tercer argumento) se comportan exactamente igual
+// que antes: actual>=limiteDiario con +1 es lo mismo que actual+1>limiteDiario.
+function _evaluarLimite(peticionesHoy, limiteDiario, peso = 1) {
   const actual = typeof peticionesHoy === 'number' ? peticionesHoy : 0;
-  if (actual >= limiteDiario) {
+  if (actual + peso > limiteDiario) {
     return { permitido: false, nuevoContador: actual };
   }
-  return { permitido: true, nuevoContador: actual + 1 };
+  return { permitido: true, nuevoContador: actual + peso };
 }
 
-async function _comprobarYRegistrarUso(uid, hoyISO) {
+async function _comprobarYRegistrarUso(uid, hoyISO, peso = 1) {
   const ref = db.collection('usuarios').doc(uid).collection('usoIA').doc(hoyISO);
   const permitido = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    const decision = _evaluarLimite(snap.exists ? snap.data().peticiones : 0, LIMITE_DIARIO);
+    const decision = _evaluarLimite(snap.exists ? snap.data().peticiones : 0, LIMITE_DIARIO, peso);
     if (decision.permitido) tx.set(ref, { peticiones: decision.nuevoContador }, { merge: true });
     return decision.permitido;
   });
@@ -451,6 +456,17 @@ const MAX_CHARS_POR_ARCHIVO = 20000;
 const PRESUPUESTO_CHARS_TOTAL = 180000;
 const MAX_RUTAS_ARBOL = 3000;
 
+// Presupuestos del pipeline por etapas de generarExpediente (Fase 10) -- cada
+// módulo tiene su propio presupuesto, mucho menor que el total de
+// analizarRepositorio, porque cada uno es una llamada a Anthropic aparte.
+const MAX_ARCHIVOS_POR_MODULO = 20;
+const PRESUPUESTO_CHARS_POR_MODULO = 40000;
+// Orden fijo: "tests" y "otros" nunca generan su propia llamada a Anthropic,
+// solo cuentan como metadatos -- no aportan suficiente señal nueva para
+// justificar una llamada más.
+const MODULOS_CON_LLAMADA_PROPIA = ['pantallas', 'servicios', 'modelos', 'backend', 'configuracion', 'documentacion'];
+const PESO_EXPEDIENTE = Number(process.env.APPSDOC_PESO_EXPEDIENTE) || 10;
+
 // Directorios que nunca aportan señal real para auditar o documentar un
 // proyecto (dependencias instaladas, builds, control de versiones...).
 const DIRECTORIOS_IRRELEVANTES = [
@@ -580,6 +596,65 @@ function _priorizarArchivos(rutas, maxArchivos) {
   const anclas = rutas.filter(_esArchivoAncla);
   const resto = rutas.filter((r) => !_esArchivoAncla(r));
   return [...anclas, ...resto].slice(0, maxArchivos);
+}
+
+/// Nombres/rutas de configuración y dependencias -- no son código de la app
+/// en sí, pero cuentan como su propio módulo para el expediente (Fase 10).
+const ARCHIVOS_CONFIGURACION = [
+  'pubspec.yaml',
+  'pubspec.lock',
+  'package.json',
+  'package-lock.json',
+  'analysis_options.yaml',
+  'firebase.json',
+  'firestore.rules',
+  'firestore.indexes.json',
+  'storage.rules',
+  'build.gradle',
+  'podfile',
+  'podfile.lock',
+  'app.json',
+  '.firebaserc',
+];
+
+/// Pura: clasifica cada ruta (ya filtrada de irrelevantes, nunca vuelve a
+/// mirar el denylist por su cuenta) en un módulo lógico para el pipeline por
+/// etapas de `generarExpediente` (Fase 10). Toda ruta de entrada acaba en
+/// exactamente un grupo -- "otros" es el cajón de sastre, nunca se descarta
+/// nada aquí.
+function _agruparPorModulo(rutas) {
+  const grupos = {
+    pantallas: [],
+    servicios: [],
+    modelos: [],
+    backend: [],
+    configuracion: [],
+    documentacion: [],
+    tests: [],
+    otros: [],
+  };
+  for (const ruta of rutas) {
+    const r = ruta.toLowerCase();
+    const nombreBase = r.split('/').pop();
+    if (r.startsWith('lib/screens/') || r.startsWith('lib/pestañas/') || r.startsWith('lib/pestanas/')) {
+      grupos.pantallas.push(ruta);
+    } else if (r.startsWith('lib/services/')) {
+      grupos.servicios.push(ruta);
+    } else if (r.startsWith('lib/models/')) {
+      grupos.modelos.push(ruta);
+    } else if (r.startsWith('functions/')) {
+      grupos.backend.push(ruta);
+    } else if (r.startsWith('test/') || r.startsWith('functions-tests/')) {
+      grupos.tests.push(ruta);
+    } else if (nombreBase.startsWith('readme') || r.startsWith('docs/') || r.startsWith('doc/')) {
+      grupos.documentacion.push(ruta);
+    } else if (ARCHIVOS_CONFIGURACION.includes(nombreBase)) {
+      grupos.configuracion.push(ruta);
+    } else {
+      grupos.otros.push(ruta);
+    }
+  }
+  return grupos;
 }
 
 /// Los tarballs de GitHub anteponen un prefijo "{owner}-{repo}-{sha}/" a
@@ -774,6 +849,14 @@ function _construirPromptAnalisis({
 const ESTADOS_FUNCIONALIDAD_VALIDOS = ['planificada', 'enProgreso', 'completada', 'descartada'];
 const CATEGORIAS_DOCUMENTO_VALIDAS = ['arquitectura', 'decision', 'nota'];
 const CONFIANZAS_VALIDAS = ['alta', 'media', 'baja'];
+
+// Fase 10 (expediente integral) -- deliberadamente distintos de
+// EstadoFuncionalidad/CONFIANZAS_VALIDAS de arriba: el catálogo del
+// expediente es documental (qué tan seguro está el análisis de que algo
+// existe), nunca se mezcla con la Funcionalidad real que sí mueve el
+// progreso.
+const CONFIANZAS_EXPEDIENTE_VALIDAS = ['detectada', 'aparentementeImplementada', 'verificada', 'pendiente'];
+const NIVELES_CONFIANZA_VALORACION_VALIDOS = ['baja', 'media', 'alta'];
 
 function _normalizarTitulo(t) {
   return (t || '').trim().toLowerCase();
@@ -1029,6 +1112,540 @@ exports.analizarRepositorio = onCall(
   },
 );
 
+// ---------------------------------------------------------------------------
+// Fase 10 -- Expediente integral (pipeline por etapas)
+//
+// generarExpediente es puramente documental: nunca escribe en
+// funcionalidades/tareas/ideas/documentos/auditorias reales ni en
+// Proyecto.progresoPorcentaje -- solo LEE el progreso ya calculado para
+// mostrarlo junto a la valoración. El flujo de analizarRepositorio (arriba)
+// no se toca. Reutiliza sin cambios _obtenerRamaYCommit, _descargarTarball,
+// _listarEntradasTar, _esArchivoIrrelevante, _priorizarArchivos,
+// _extraerContenidoTar y _llamarAnthropic.
+// ---------------------------------------------------------------------------
+
+const HERRAMIENTA_ANALISIS_MODULO = {
+  name: 'registrar_analisis_modulo',
+  description:
+    'Registra el análisis condensado de un módulo concreto del repositorio (pantallas, servicios, modelos, backend, configuración o documentación).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      resumenModulo: { type: 'string', description: 'Qué hace este módulo y cómo está organizado.' },
+      elementosDetectados: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            nombre: { type: 'string' },
+            descripcion: { type: 'string' },
+            tipo: { type: 'string', description: 'p.ej. "pantalla", "servicio", "modelo", "endpoint", "dependencia".' },
+            evidencia: { type: 'string', description: 'Archivo o fragmento concreto que sustenta esta detección.' },
+          },
+          required: ['nombre', 'tipo', 'evidencia'],
+        },
+      },
+      tecnologiasDetectadas: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['resumenModulo', 'elementosDetectados', 'tecnologiasDetectadas'],
+  },
+};
+
+function _systemAnalisisModulo(nombreModulo) {
+  return `Eres un auditor técnico senior. Analiza SOLO el módulo "${nombreModulo}" de una aplicación de software -- no tienes el resto del repositorio, no asumas nada sobre lo que no ves aquí. Usa SIEMPRE la herramienta "registrar_analisis_modulo" para responder -- nunca texto libre. Resume qué hace este módulo, enumera los elementos concretos detectados citando evidencia de archivo real, y lista las tecnologías que detectes en este módulo. No inventes nada que no esté respaldado por el código que ves.`;
+}
+
+/// Pura: prompt de una etapa de módulo -- solo el contenido de ESE módulo,
+/// nunca el repositorio completo.
+function _construirPromptModulo({ nombreModulo, archivosConContenido }) {
+  const lineas = [];
+  lineas.push(`Módulo "${nombreModulo}" de la aplicación -- contenido de sus archivos más relevantes.`);
+  lineas.push('', '## Archivos');
+  if (archivosConContenido.size) {
+    for (const [ruta, contenido] of archivosConContenido) {
+      lineas.push(`\n--- ${ruta} ---\n${contenido}`);
+    }
+  } else {
+    lineas.push('(no se pudo leer contenido de ningún archivo de este módulo)');
+  }
+  return lineas.join('\n');
+}
+
+/// Pura: parsea la respuesta condensada de una llamada de módulo.
+function _parsearAnalisisModulo(contentBlocks) {
+  const bloque = (contentBlocks || []).find((b) => b.type === 'tool_use' && b.name === 'registrar_analisis_modulo');
+  if (!bloque || typeof bloque.input !== 'object' || bloque.input === null) {
+    throw new HttpsError('internal', 'La IA no devolvió un análisis de módulo válido.');
+  }
+  const input = bloque.input;
+  const resumenModulo = typeof input.resumenModulo === 'string' ? input.resumenModulo.trim() : '';
+  const elementosDetectados = Array.isArray(input.elementosDetectados)
+    ? input.elementosDetectados
+        .filter((e) => e && typeof e.nombre === 'string' && e.nombre.trim() !== '')
+        .map((e) => ({
+          nombre: e.nombre.trim(),
+          descripcion: typeof e.descripcion === 'string' ? e.descripcion.trim() : '',
+          tipo: typeof e.tipo === 'string' ? e.tipo.trim() : '',
+          evidencia: typeof e.evidencia === 'string' ? e.evidencia.trim() : '',
+        }))
+    : [];
+  const tecnologiasDetectadas = Array.isArray(input.tecnologiasDetectadas)
+    ? input.tecnologiasDetectadas.filter((t) => typeof t === 'string' && t.trim() !== '').map((t) => t.trim())
+    : [];
+  return { resumenModulo, elementosDetectados, tecnologiasDetectadas };
+}
+
+const HALLAZGO_EXPEDIENTE_ITEM = {
+  type: 'object',
+  properties: {
+    titulo: { type: 'string' },
+    descripcion: { type: 'string' },
+    gravedad: { type: 'string', enum: GRAVEDADES_VALIDAS },
+    evidencia: { type: 'string' },
+  },
+  required: ['titulo', 'gravedad', 'evidencia'],
+};
+
+const ESCENARIO_ECONOMICO_ITEM = {
+  type: 'object',
+  properties: {
+    costeDesarrolloEstimado: { type: 'number' },
+    costeReconstruccionEstimado: { type: 'number' },
+    valorProductoEstimado: { type: 'number' },
+    moneda: { type: 'string', description: 'Código ISO de 3 letras, p.ej. "EUR".' },
+    razonamiento: { type: 'string' },
+  },
+  required: ['costeDesarrolloEstimado', 'costeReconstruccionEstimado', 'valorProductoEstimado', 'moneda', 'razonamiento'],
+};
+
+const ESCENARIO_USUARIOS_ITEM = {
+  type: 'object',
+  properties: {
+    usuariosEstimados: { type: 'number' },
+    razonamiento: { type: 'string' },
+  },
+  required: ['usuariosEstimados', 'razonamiento'],
+};
+
+const HERRAMIENTA_SINTESIS_EXPEDIENTE = {
+  name: 'registrar_expediente',
+  description:
+    'Registra el expediente integral de la aplicación: descripción general, pantallas, catálogo de funcionalidades, arquitectura, calidad, seguridad, valoración económica y potencial de usuarios.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      descripcionGeneral: {
+        type: 'object',
+        properties: {
+          resumen: { type: 'string' },
+          propuestaValor: { type: 'string' },
+          publicoObjetivo: { type: 'string' },
+          estadoMadurez: { type: 'string', description: 'p.ej. "prototipo", "en desarrollo activo", "listo para producción".' },
+        },
+        required: ['resumen', 'propuestaValor', 'publicoObjetivo', 'estadoMadurez'],
+      },
+      pantallas: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            nombre: { type: 'string' },
+            descripcionFuncion: { type: 'string' },
+            archivoPrincipal: { type: 'string' },
+            navegacion: { type: 'string', description: 'Cómo se llega a esta pantalla y a dónde lleva.' },
+            pantallasRelacionadas: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['nombre', 'descripcionFuncion', 'archivoPrincipal'],
+        },
+      },
+      catalogoFuncionalidades: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            nombre: { type: 'string' },
+            descripcion: { type: 'string' },
+            confianza: {
+              type: 'string',
+              enum: CONFIANZAS_EXPEDIENTE_VALIDAS,
+              description:
+                '"detectada": solo código relacionado, sin más. "aparentementeImplementada": parece completa pero no verificada. "verificada": evidencia clara e inequívoca. "pendiente": no verificable con lo analizado. Nunca asumas que encontrar código significa que algo está terminado.',
+            },
+            evidencia: { type: 'string' },
+            archivosRelacionados: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['nombre', 'confianza', 'evidencia'],
+        },
+      },
+      arquitectura: {
+        type: 'object',
+        properties: {
+          resumen: { type: 'string' },
+          patrones: { type: 'array', items: { type: 'string' } },
+          tecnologias: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['resumen', 'patrones', 'tecnologias'],
+      },
+      calidad: {
+        type: 'object',
+        properties: { resumen: { type: 'string' }, hallazgos: { type: 'array', items: HALLAZGO_EXPEDIENTE_ITEM } },
+        required: ['resumen', 'hallazgos'],
+      },
+      seguridad: {
+        type: 'object',
+        properties: { resumen: { type: 'string' }, hallazgos: { type: 'array', items: HALLAZGO_EXPEDIENTE_ITEM } },
+        required: ['resumen', 'hallazgos'],
+        description:
+          'Distingue problemas CONFIRMADOS de riesgos POTENCIALES en cada descripción. Nunca afirmes que la aplicación es segura solo porque no se detectaron problemas.',
+      },
+      valoracionEconomica: {
+        type: 'object',
+        properties: {
+          conservador: ESCENARIO_ECONOMICO_ITEM,
+          intermedio: ESCENARIO_ECONOMICO_ITEM,
+          optimista: ESCENARIO_ECONOMICO_ITEM,
+          supuestos: { type: 'array', items: { type: 'string' } },
+          limitaciones: { type: 'string' },
+          nivelConfianza: { type: 'string', enum: NIVELES_CONFIANZA_VALORACION_VALIDOS },
+        },
+        required: ['conservador', 'intermedio', 'optimista', 'supuestos', 'limitaciones', 'nivelConfianza'],
+      },
+      potencialUsuarios: {
+        type: 'object',
+        properties: {
+          conservador: ESCENARIO_USUARIOS_ITEM,
+          intermedio: ESCENARIO_USUARIOS_ITEM,
+          optimista: ESCENARIO_USUARIOS_ITEM,
+          segmentoObjetivo: { type: 'string' },
+          supuestos: { type: 'array', items: { type: 'string' } },
+          limitaciones: { type: 'string' },
+          nivelConfianza: { type: 'string', enum: NIVELES_CONFIANZA_VALORACION_VALIDOS },
+        },
+        required: ['conservador', 'intermedio', 'optimista', 'segmentoObjetivo', 'supuestos', 'limitaciones', 'nivelConfianza'],
+      },
+      analisisProgresoValor: {
+        type: 'string',
+        description: 'Relación cualitativa entre el progreso de desarrollo y el valor/potencial -- nunca una fórmula mecánica.',
+      },
+    },
+    required: [
+      'descripcionGeneral',
+      'pantallas',
+      'catalogoFuncionalidades',
+      'arquitectura',
+      'calidad',
+      'seguridad',
+      'valoracionEconomica',
+      'potencialUsuarios',
+      'analisisProgresoValor',
+    ],
+  },
+};
+
+const SYSTEM_SINTESIS_EXPEDIENTE = `Eres un analista senior preparando el EXPEDIENTE INTEGRAL de una aplicación de software para AppsDoc: su objetivo es que cualquiera (el propio dueño o un tercero) entienda qué es la app, cómo está construida, qué calidad y seguridad tiene, y cuánto podría valer -- no proponer tareas ni mejoras (eso ya lo hace otra función de AppsDoc).
+
+Recibes resúmenes YA CONDENSADOS de cada módulo del repositorio (pantallas, servicios, modelos, backend, configuración, documentación) -- no el código crudo. Básate solo en esos resúmenes y en el contexto que te demos (progreso ya calculado, expediente anterior si existe).
+
+REGLAS ESTRICTAS:
+- Responde SIEMPRE llamando a la herramienta "registrar_expediente" -- nunca con texto libre.
+- Catálogo de funcionalidades: usa "verificada" únicamente con evidencia clara e inequívoca; "aparentementeImplementada" si el código parece completo pero no está verificado; "detectada" si solo hay indicios; "pendiente" si no hay evidencia suficiente.
+- Seguridad: distingue problemas confirmados de riesgos potenciales. Nunca afirmes que la aplicación es segura solo porque no detectaste problemas -- dilo explícitamente como limitación si es el caso.
+- Valoración económica y potencial de usuarios son estimaciones razonadas a partir de lo que ves (complejidad, tecnologías, alcance) y tu conocimiento general de mercado -- NUNCA inventes clientes, usuarios, ventas o demanda reales. Cada escenario (conservador/intermedio/optimista) lleva su propio razonamiento. "supuestos" y "limitaciones" son obligatorios y deben ser honestos sobre qué información falta. Usa "nivelConfianza" baja si hay poca información -- no la infles.
+- No multipliques mecánicamente el valor por el porcentaje de progreso -- "analisisProgresoValor" es una explicación cualitativa, no una fórmula.
+- No propongas ninguna funcionalidad nueva, documento, tarea ni idea -- esto es un expediente documental, no una propuesta de trabajo.
+- Responde siempre en español.`;
+
+/// Pura: prompt de síntesis -- recibe los resúmenes condensados de cada
+/// módulo (nunca código crudo de archivo otra vez) más contexto de AppsDoc.
+function _construirPromptSintesis({
+  proyecto,
+  resumenesPorModulo,
+  funcionalidadesExistentes,
+  documentosExistentes,
+  progresoPorcentaje,
+  expedienteAnterior,
+}) {
+  const lineas = [];
+  lineas.push(`Síntesis del proyecto "${proyecto.nombre}".`);
+
+  lineas.push('', '## Resúmenes condensados por módulo');
+  const entradasModulo = Object.entries(resumenesPorModulo).filter(([, r]) => r);
+  if (entradasModulo.length) {
+    for (const [nombreModulo, resumen] of entradasModulo) {
+      lineas.push(`\n--- Módulo: ${nombreModulo} ---`);
+      lineas.push(`Resumen: ${resumen.resumenModulo}`);
+      if (resumen.elementosDetectados.length) {
+        lineas.push('Elementos detectados:');
+        for (const el of resumen.elementosDetectados) {
+          lineas.push(`- [${el.tipo}] ${el.nombre}: ${el.descripcion} (evidencia: ${el.evidencia})`);
+        }
+      }
+      if (resumen.tecnologiasDetectadas.length) {
+        lineas.push(`Tecnologías: ${resumen.tecnologiasDetectadas.join(', ')}`);
+      }
+    }
+  } else {
+    lineas.push('(no se pudo analizar ningún módulo)');
+  }
+
+  lineas.push('', '## Funcionalidades ya registradas formalmente en AppsDoc (contexto -- el catálogo del expediente es un inventario completo, puede incluirlas también)');
+  lineas.push(funcionalidadesExistentes.length ? funcionalidadesExistentes.map((n) => `- ${n}`).join('\n') : '(ninguna)');
+
+  lineas.push('', '## Documentos ya registrados formalmente en AppsDoc');
+  lineas.push(documentosExistentes.length ? documentosExistentes.map((n) => `- ${n}`).join('\n') : '(ninguno)');
+
+  lineas.push('', `## Progreso de desarrollo ya calculado por AppsDoc: ${progresoPorcentaje}%`);
+  lineas.push('(Úsalo solo como referencia para "analisisProgresoValor" -- nunca lo recalcules ni lo repitas como si fuera tuyo.)');
+
+  if (expedienteAnterior) {
+    lineas.push('', '## Resumen del expediente confirmado anterior de este mismo proyecto (para mantener continuidad, no para copiar literalmente)');
+    lineas.push(expedienteAnterior);
+  }
+
+  return lineas.join('\n');
+}
+
+/// Pura: parsea la síntesis final. Clampa cada enum a su valor conservador
+/// por defecto (confianza->"pendiente", gravedad->"media",
+/// nivelConfianza->"baja") en vez de fallar, igual criterio que
+/// _parsearAnalisisRepositorio.
+function _parsearExpediente(contentBlocks, { progresoPorcentaje = 0 } = {}) {
+  const bloque = (contentBlocks || []).find((b) => b.type === 'tool_use' && b.name === 'registrar_expediente');
+  if (!bloque || typeof bloque.input !== 'object' || bloque.input === null) {
+    throw new HttpsError('internal', 'La IA no devolvió un expediente válido.');
+  }
+  const input = bloque.input;
+
+  const texto = (v) => (typeof v === 'string' ? v.trim() : '');
+  const lista = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim() !== '').map((x) => x.trim()) : []);
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+  const d = input.descripcionGeneral || {};
+  const descripcionGeneral = {
+    resumen: texto(d.resumen),
+    propuestaValor: texto(d.propuestaValor),
+    publicoObjetivo: texto(d.publicoObjetivo),
+    estadoMadurez: texto(d.estadoMadurez),
+  };
+  if (!descripcionGeneral.resumen) throw new HttpsError('internal', 'La IA no devolvió una descripción general.');
+
+  const pantallas = Array.isArray(input.pantallas)
+    ? input.pantallas
+        .filter((p) => p && typeof p.nombre === 'string' && p.nombre.trim() !== '')
+        .map((p) => ({
+          nombre: p.nombre.trim(),
+          descripcionFuncion: texto(p.descripcionFuncion),
+          archivoPrincipal: texto(p.archivoPrincipal),
+          navegacion: texto(p.navegacion),
+          pantallasRelacionadas: lista(p.pantallasRelacionadas),
+        }))
+    : [];
+
+  const catalogoFuncionalidades = Array.isArray(input.catalogoFuncionalidades)
+    ? input.catalogoFuncionalidades
+        .filter((f) => f && typeof f.nombre === 'string' && f.nombre.trim() !== '')
+        .map((f) => ({
+          nombre: f.nombre.trim(),
+          descripcion: texto(f.descripcion),
+          confianza: CONFIANZAS_EXPEDIENTE_VALIDAS.includes(f.confianza) ? f.confianza : 'pendiente',
+          evidencia: texto(f.evidencia),
+          archivosRelacionados: lista(f.archivosRelacionados),
+        }))
+    : [];
+
+  const a = input.arquitectura || {};
+  const arquitectura = { resumen: texto(a.resumen), patrones: lista(a.patrones), tecnologias: lista(a.tecnologias) };
+
+  const mapearHallazgos = (hs) =>
+    Array.isArray(hs)
+      ? hs
+          .filter((h) => h && typeof h.titulo === 'string' && h.titulo.trim() !== '')
+          .map((h, i) => ({
+            id: `${Date.now()}-${i}`,
+            titulo: h.titulo.trim(),
+            descripcion: texto(h.descripcion),
+            gravedad: GRAVEDADES_VALIDAS.includes(h.gravedad) ? h.gravedad : 'media',
+            evidencia: texto(h.evidencia),
+          }))
+      : [];
+
+  const c = input.calidad || {};
+  const calidad = { resumen: texto(c.resumen), hallazgos: mapearHallazgos(c.hallazgos) };
+  const s = input.seguridad || {};
+  const seguridad = { resumen: texto(s.resumen), hallazgos: mapearHallazgos(s.hallazgos) };
+
+  const mapearEscenarioEconomico = (e) => {
+    const eo = e || {};
+    return {
+      costeDesarrolloEstimado: num(eo.costeDesarrolloEstimado),
+      costeReconstruccionEstimado: num(eo.costeReconstruccionEstimado),
+      valorProductoEstimado: num(eo.valorProductoEstimado),
+      moneda: texto(eo.moneda) || 'EUR',
+      razonamiento: texto(eo.razonamiento),
+    };
+  };
+  const ve = input.valoracionEconomica || {};
+  const valoracionEconomica = {
+    conservador: mapearEscenarioEconomico(ve.conservador),
+    intermedio: mapearEscenarioEconomico(ve.intermedio),
+    optimista: mapearEscenarioEconomico(ve.optimista),
+    supuestos: lista(ve.supuestos),
+    limitaciones: texto(ve.limitaciones),
+    nivelConfianza: NIVELES_CONFIANZA_VALORACION_VALIDOS.includes(ve.nivelConfianza) ? ve.nivelConfianza : 'baja',
+  };
+
+  const mapearEscenarioUsuarios = (e) => {
+    const eo = e || {};
+    return { usuariosEstimados: num(eo.usuariosEstimados), razonamiento: texto(eo.razonamiento) };
+  };
+  const pu = input.potencialUsuarios || {};
+  const potencialUsuarios = {
+    conservador: mapearEscenarioUsuarios(pu.conservador),
+    intermedio: mapearEscenarioUsuarios(pu.intermedio),
+    optimista: mapearEscenarioUsuarios(pu.optimista),
+    segmentoObjetivo: texto(pu.segmentoObjetivo),
+    supuestos: lista(pu.supuestos),
+    limitaciones: texto(pu.limitaciones),
+    nivelConfianza: NIVELES_CONFIANZA_VALORACION_VALIDOS.includes(pu.nivelConfianza) ? pu.nivelConfianza : 'baja',
+  };
+
+  const progresoValor = { progresoPorcentajeLeido: progresoPorcentaje, analisisTexto: texto(input.analisisProgresoValor) };
+
+  return {
+    descripcionGeneral,
+    pantallas,
+    catalogoFuncionalidades,
+    arquitectura,
+    calidad,
+    seguridad,
+    valoracionEconomica,
+    potencialUsuarios,
+    progresoValor,
+  };
+}
+
+exports.generarExpediente = onCall(
+  { region: REGION, secrets: [_anthropicKey], timeoutSeconds: 540, memory: '1GiB' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Debes estar autenticado.');
+    const uid = request.auth.uid;
+    const proyectoIdCrudo = request.data && request.data.proyectoId;
+    if (typeof proyectoIdCrudo !== 'string' || proyectoIdCrudo.trim() === '') {
+      throw new HttpsError('invalid-argument', 'Falta el identificador del proyecto.');
+    }
+    const proyectoId = proyectoIdCrudo.trim();
+
+    const proyectoRef = db.collection('usuarios').doc(uid).collection('proyectos').doc(proyectoId);
+    const proyectoSnap = await proyectoRef.get();
+    if (!proyectoSnap.exists) throw new HttpsError('not-found', 'El proyecto no existe.');
+    const proyecto = proyectoSnap.data();
+    const propietario = proyecto.repoPropietario;
+    const nombreRepo = proyecto.repoNombre;
+    if (!propietario || !nombreRepo) {
+      throw new HttpsError('failed-precondition', 'Este proyecto no tiene un repositorio de GitHub vinculado.');
+    }
+
+    const hoyISO = new Date().toISOString().slice(0, 10);
+    await _comprobarYRegistrarUso(uid, hoyISO, PESO_EXPEDIENTE);
+
+    const [funcSnap, docSnap] = await Promise.all([
+      proyectoRef.collection('funcionalidades').get(),
+      proyectoRef.collection('documentos').get(),
+    ]);
+    const funcionalidadesExistentes = funcSnap.docs.map((d) => d.data().nombre).filter(Boolean);
+    const documentosExistentes = docSnap.docs.map((d) => d.data().titulo).filter(Boolean);
+    const progresoPorcentaje = typeof proyecto.progresoPorcentaje === 'number' ? proyecto.progresoPorcentaje : 0;
+
+    const { rama, sha } = await _obtenerRamaYCommit(propietario, nombreRepo);
+    const tarball = await _descargarTarball(propietario, nombreRepo, rama);
+
+    const todasEntradas = await _listarEntradasTar(tarball);
+    const todasLasRutas = todasEntradas.map((e) => e.path).filter(Boolean);
+    // Único punto de filtrado de todo el pipeline -- _agruparPorModulo recibe
+    // solo rutas ya limpias y nunca vuelve a mirar el denylist.
+    const rutasTexto = todasLasRutas.filter((p) => !_esArchivoIrrelevante(p));
+    const truncadoArbol = todasEntradas.length >= MAX_RUTAS_ARBOL;
+
+    const grupos = _agruparPorModulo(rutasTexto);
+
+    const apiKey = _anthropicKey.value();
+    if (!apiKey) throw new HttpsError('internal', 'API key no configurada en el servidor.');
+
+    let archivosAnalizados = 0;
+    let archivosOmitidosTotal = 0;
+    const resumenesPorModulo = {};
+    // Secuencial (no Promise.all): acota memoria y tasa de peticiones a
+    // Anthropic en vez de disparar hasta 6 llamadas en paralelo.
+    for (const nombreModulo of MODULOS_CON_LLAMADA_PROPIA) {
+      const rutasModulo = grupos[nombreModulo] || [];
+      if (rutasModulo.length === 0) continue;
+      const rutasAIncluir = _priorizarArchivos(rutasModulo, MAX_ARCHIVOS_POR_MODULO);
+      const contenidos = await _extraerContenidoTar(tarball, rutasAIncluir, PRESUPUESTO_CHARS_POR_MODULO);
+      archivosAnalizados += contenidos.size;
+      archivosOmitidosTotal += Math.max(0, rutasModulo.length - contenidos.size);
+      if (contenidos.size === 0) continue;
+
+      const promptModulo = _construirPromptModulo({ nombreModulo, archivosConContenido: contenidos });
+      const dataModulo = await _llamarAnthropic(apiKey, {
+        model: MODELO,
+        max_tokens: 1536,
+        system: _systemAnalisisModulo(nombreModulo),
+        tools: [HERRAMIENTA_ANALISIS_MODULO],
+        tool_choice: { type: 'auto' },
+        messages: [{ role: 'user', content: promptModulo }],
+      });
+      resumenesPorModulo[nombreModulo] = _parsearAnalisisModulo(dataModulo.content);
+    }
+
+    const truncado = truncadoArbol || archivosOmitidosTotal > 0;
+
+    // Expediente confirmado anterior, para continuidad -- igual criterio que
+    // "análisis automático anterior" en analizarRepositorio.
+    const anteriorSnap = await proyectoRef
+      .collection('expedientes')
+      .where('estado', '==', 'confirmado')
+      .orderBy('numeroVersion', 'desc')
+      .limit(1)
+      .get();
+    const expedienteAnteriorDoc = anteriorSnap.docs[0] ? anteriorSnap.docs[0].data() : null;
+    const expedienteAnterior =
+      expedienteAnteriorDoc && expedienteAnteriorDoc.descripcionGeneral ? expedienteAnteriorDoc.descripcionGeneral.resumen || null : null;
+
+    const promptSintesis = _construirPromptSintesis({
+      proyecto: { nombre: proyecto.nombre || '' },
+      resumenesPorModulo,
+      funcionalidadesExistentes,
+      documentosExistentes,
+      progresoPorcentaje,
+      expedienteAnterior,
+    });
+
+    const dataSintesis = await _llamarAnthropic(apiKey, {
+      model: MODELO,
+      max_tokens: 4096,
+      system: SYSTEM_SINTESIS_EXPEDIENTE,
+      tools: [HERRAMIENTA_SINTESIS_EXPEDIENTE],
+      tool_choice: { type: 'auto' },
+      messages: [{ role: 'user', content: promptSintesis }],
+    });
+
+    const expediente = _parsearExpediente(dataSintesis.content, { progresoPorcentaje });
+
+    return {
+      ...expediente,
+      metaGeneracion: {
+        modeloUsado: MODELO,
+        etapasEjecutadas: Object.keys(resumenesPorModulo).length + 1,
+        archivosAnalizados,
+        archivosOmitidos: archivosOmitidosTotal,
+        truncado,
+      },
+      repoCommitAnalizado: sha,
+      repoRama: rama,
+    };
+  },
+);
+
 module.exports._validarPreguntaInput = _validarPreguntaInput;
 module.exports._validarExtraccionInput = _validarExtraccionInput;
 module.exports._evaluarLimite = _evaluarLimite;
@@ -1041,3 +1658,8 @@ module.exports._listarEntradasTar = _listarEntradasTar;
 module.exports._extraerContenidoTar = _extraerContenidoTar;
 module.exports._construirPromptAnalisis = _construirPromptAnalisis;
 module.exports._parsearAnalisisRepositorio = _parsearAnalisisRepositorio;
+module.exports._agruparPorModulo = _agruparPorModulo;
+module.exports._construirPromptModulo = _construirPromptModulo;
+module.exports._parsearAnalisisModulo = _parsearAnalisisModulo;
+module.exports._construirPromptSintesis = _construirPromptSintesis;
+module.exports._parsearExpediente = _parsearExpediente;

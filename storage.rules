@@ -1,0 +1,15 @@
+rules_version = '2';
+
+// Espejo de firestore.rules: aislamiento por uid, una sola regla recursiva.
+// capturas/{uid}/{proyectoId}/{pantallaClave}/{capturaId}.jpg -- solo
+// imágenes, hasta 10 MB por archivo.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /capturas/{uid}/{allPaths=**} {
+      allow read, write: if request.auth != null
+                          && request.auth.uid == uid
+                          && request.resource.size < 10 * 1024 * 1024
+                          && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

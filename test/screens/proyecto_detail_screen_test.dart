@@ -11,6 +11,7 @@ import 'package:appsdoc/screens/proyectos/proyecto_detail_screen.dart';
 import 'package:appsdoc/screens/tareas/tarea_form_screen.dart';
 import 'package:appsdoc/services/auditoria_service.dart';
 import 'package:appsdoc/services/documento_service.dart';
+import 'package:appsdoc/services/expediente_service.dart';
 import 'package:appsdoc/services/funcionalidad_service.dart';
 import 'package:appsdoc/services/github_service.dart';
 import 'package:appsdoc/services/historial_service.dart';
@@ -41,10 +42,15 @@ void main() {
     AuditoriaService.debugUidOverride = 'uid-test';
     HistorialService.debugFirestoreOverride = db;
     HistorialService.debugUidOverride = 'uid-test';
+    ExpedienteService.debugFirestoreOverride = db;
+    ExpedienteService.debugUidOverride = 'uid-test';
   });
 
   tearDown(() {
     GithubService.debugHttpClientOverride = null;
+    ExpedienteService.debugFirestoreOverride = null;
+    ExpedienteService.debugUidOverride = null;
+    ExpedienteService.debugCallableOverride = null;
     ProyectoService.debugFirestoreOverride = null;
     ProyectoService.debugUidOverride = null;
     FuncionalidadService.debugFirestoreOverride = null;
@@ -114,6 +120,63 @@ void main() {
     // El propio crear() del proyecto ya dejó un evento -- nunca está vacío.
     expect(find.text('Sin actividad todavía.'), findsNothing);
     expect(find.textContaining('Proyecto creado'), findsOneWidget);
+
+    await irATab(tester, 'Expediente');
+    expect(find.textContaining('Vincula un repositorio'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Generar expediente'), findsNothing);
+  });
+
+  testWidgets('la pestaña Expediente ofrece generar uno cuando hay repositorio vinculado, y muestra el confirmado cuando existe', (tester) async {
+    final id = await ProyectoService.crear(nombre: 'REPARA');
+    await ProyectoService.vincularRepo(id, 'https://github.com/owner/repo');
+    GithubService.debugHttpClientOverride = MockClient(
+      (request) async => http.Response(jsonEncode({'default_branch': 'main', 'updated_at': '2026-11-01T10:00:00Z'}), 200),
+    );
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpDetailScreen(tester, id);
+    await irATab(tester, 'Expediente');
+
+    // find.widgetWithText compara runtimeType exacto -- FilledButton.tonalIcon
+    // construye una subclase privada, así que hace falta un predicate con "is".
+    expect(find.ancestor(of: find.text('Generar expediente'), matching: find.byWidgetPredicate((w) => w is FilledButton)), findsOneWidget);
+    expect(find.textContaining('Todavía no hay un expediente confirmado'), findsOneWidget);
+
+    ExpedienteService.debugCallableOverride = (datos) async => {
+      'descripcionGeneral': {'resumen': 'Confirmado', 'propuestaValor': '', 'publicoObjetivo': '', 'estadoMadurez': ''},
+      'pantallas': <Map<String, dynamic>>[],
+      'catalogoFuncionalidades': <Map<String, dynamic>>[],
+      'arquitectura': {'resumen': '', 'patrones': [], 'tecnologias': []},
+      'calidad': {'resumen': '', 'hallazgos': []},
+      'seguridad': {'resumen': '', 'hallazgos': []},
+      'valoracionEconomica': {
+        'conservador': {},
+        'intermedio': {},
+        'optimista': {},
+        'supuestos': [],
+        'limitaciones': '',
+        'nivelConfianza': 'baja',
+      },
+      'potencialUsuarios': {
+        'conservador': {},
+        'intermedio': {},
+        'optimista': {},
+        'segmentoObjetivo': '',
+        'supuestos': [],
+        'limitaciones': '',
+        'nivelConfianza': 'baja',
+      },
+      'progresoValor': {'progresoPorcentajeLeido': 0, 'analisisTexto': ''},
+      'metaGeneracion': {'modeloUsado': '', 'etapasEjecutadas': 0, 'archivosAnalizados': 0, 'archivosOmitidos': 0, 'truncado': false},
+    };
+    final expediente = await ExpedienteService.generar(proyectoId: id);
+    await ExpedienteService.confirmar(id, expediente.id);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Confirmado'), findsOneWidget);
+    expect(find.ancestor(of: find.text('Generar de nuevo'), matching: find.byWidgetPredicate((w) => w is FilledButton)), findsOneWidget);
+    expect(find.ancestor(of: find.text('Corregir descripción'), matching: find.byWidgetPredicate((w) => w is OutlinedButton)), findsOneWidget);
   });
 
   testWidgets('añadir una funcionalidad desde la sección la hace aparecer en la lista', (tester) async {

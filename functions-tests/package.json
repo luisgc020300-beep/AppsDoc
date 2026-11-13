@@ -1,10 +1,10 @@
 {
   "name": "appsdoc-functions-tests",
   "private": true,
-  "description": "Tests de las Cloud Functions de IA de AppsDoc (Fases 7 y 9). 'npm test' corre los unitarios puros (validación de entrada, límite de uso, contexto del proyecto, parseo de respuestas de Anthropic, análisis de repositorios) sin tocar ningún emulador. 'npm run test:emulator' corre además seguridad.test.js contra el Emulator Suite real (Firestore + Auth + Functions) -- nunca contra el proyecto real.",
+  "description": "Tests de las Cloud Functions de IA de AppsDoc (Fases 7, 9 y 10). 'npm test' corre los unitarios puros (validación de entrada, límite de uso, contexto del proyecto, parseo de respuestas de Anthropic, análisis de repositorios, expediente integral) sin tocar ningún emulador. 'npm run test:emulator' corre además seguridad.test.js y seguridad_expediente.test.js contra el Emulator Suite real (Firestore + Auth + Functions) -- nunca contra el proyecto real.",
   "scripts": {
-    "test": "node --test --test-concurrency=1 validacion.test.js limite.test.js contexto.test.js anthropic.test.js analisis_repositorio.test.js",
-    "test:emulator": "firebase emulators:exec --only firestore,auth,functions \"node --test seguridad.test.js\" --config ../firebase.json"
+    "test": "node --test --test-concurrency=1 validacion.test.js limite.test.js contexto.test.js anthropic.test.js analisis_repositorio.test.js expediente.test.js",
+    "test:emulator": "firebase emulators:exec --only firestore,auth,functions \"node --test seguridad.test.js seguridad_expediente.test.js\" --config ../firebase.json"
   },
   "devDependencies": {
     "firebase-admin": "^13.6.0",

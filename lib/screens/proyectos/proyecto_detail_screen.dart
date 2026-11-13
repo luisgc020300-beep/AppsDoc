@@ -13,6 +13,7 @@ import '../../models/auditoria.dart';
 import '../../models/documento.dart';
 import '../../models/estado_tarea.dart';
 import '../../models/evento_historial.dart';
+import '../../models/expediente.dart';
 import '../../models/funcionalidad.dart';
 import '../../models/github_repo_info.dart';
 import '../../models/idea.dart';
@@ -24,11 +25,17 @@ import '../../services/proyecto_service.dart';
 import '../../services/tarea_service.dart';
 import '../../theme/design_tokens.dart';
 import '../../widgets/estado_badge.dart';
+import '../../widgets/expediente/expediente_detalle_widget.dart';
 import '../../widgets/seccion_header.dart';
+import '../../services/expediente_service.dart';
 import '../analisis/analisis_repositorio_screen.dart';
 import '../asistente/asistente_screen.dart';
 import '../auditorias/auditoria_form_screen.dart';
 import '../documentacion/documento_form_screen.dart';
+import '../expediente/editar_descripcion_expediente_screen.dart';
+import '../expediente/expediente_revision_screen.dart';
+import '../expediente/expediente_versiones_screen.dart';
+import '../expediente/galeria_capturas_screen.dart';
 import '../funcionalidades/funcionalidad_form_screen.dart';
 import '../ideas/idea_form_screen.dart';
 import '../tareas/tarea_form_screen.dart';
@@ -42,6 +49,7 @@ const _tabs = [
   Tab(text: 'Ideas'),
   Tab(text: 'Auditorías'),
   Tab(text: 'Historial'),
+  Tab(text: 'Expediente'),
 ];
 
 class ProyectoDetailScreen extends StatefulWidget {
@@ -129,6 +137,7 @@ class _ProyectoDetailScreenState extends State<ProyectoDetailScreen> {
         _contenedorTab(_SeccionIdeas(proyectoId: widget.proyectoId, ideas: _controller.ideas)),
         _contenedorTab(_SeccionAuditorias(proyectoId: widget.proyectoId, auditorias: _controller.auditorias)),
         _contenedorTab(_SeccionHistorial(historial: _controller.historial)),
+        _contenedorTab(_SeccionExpediente(proyecto: proyecto)),
       ],
     );
   }
@@ -853,6 +862,100 @@ class _SeccionHistorial extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Fase 10: el expediente es un pipeline y una pantalla aparte de
+/// "Analizar con IA" (que sigue viviendo en _SeccionGithub, sin cambios) --
+/// puramente documental, nunca escribe en funcionalidades/tareas/ideas/
+/// documentos/auditorias reales ni en Proyecto.progresoPorcentaje.
+class _SeccionExpediente extends StatelessWidget {
+  const _SeccionExpediente({required this.proyecto});
+
+  final Proyecto proyecto;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return StreamBuilder<Expediente?>(
+      stream: ExpedienteService.streamActualConfirmado(proyecto.id),
+      builder: (context, snapshot) {
+        final actual = snapshot.data;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SeccionHeader(
+              titulo: 'Expediente',
+              icono: Icons.folder_special_outlined,
+              accion: TextButton.icon(
+                icon: const Icon(Icons.history, size: 16),
+                label: const Text('Versiones'),
+                onPressed: () =>
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteVersionesScreen(proyectoId: proyecto.id))),
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (!proyecto.repoConectado)
+              Text(
+                'Vincula un repositorio de GitHub en la sección Resumen para poder generar un expediente.',
+                style: TextStyle(color: colors.textMuted),
+              )
+            else if (actual == null) ...[
+              Text(
+                'Todavía no hay un expediente confirmado para este proyecto. Genera uno para obtener su descripción, '
+                'catálogo de pantallas y funcionalidades, arquitectura, calidad, seguridad y valoración económica.',
+                style: TextStyle(color: colors.textMuted),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () =>
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteRevisionScreen(proyecto: proyecto))),
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('Generar expediente'),
+              ),
+            ] else ...[
+              ExpedienteDetalleWidget(expediente: actual),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: () =>
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => ExpedienteRevisionScreen(proyecto: proyecto))),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Generar de nuevo'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => EditarDescripcionExpedienteScreen(proyectoId: proyecto.id, expediente: actual)),
+                    ),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Corregir descripción'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GaleriaCapturasScreen(proyectoId: proyecto.id, pantallas: actual.pantallas),
+                      ),
+                    ),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Galería de capturas'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: null,
+                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                    label: const Text('Exportar a PDF (próximamente)'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 }

@@ -60,6 +60,14 @@ dependencies:
   # Convive, sin añadir nada nuevo al ecosistema.
   google_fonts: ^6.2.1
 
+  # Galería de capturas manuales del expediente (Fase 10) -- firebase_storage
+  # guarda el binario (reglas espejo de Firestore, ver storage.rules),
+  # image_picker deja elegir la imagen desde el dispositivo, crypto calcula
+  # el hash de cada captura para no subir duplicados.
+  firebase_storage: ^13.6.1
+  image_picker: ^1.2.3
+  crypto: ^3.0.8
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
